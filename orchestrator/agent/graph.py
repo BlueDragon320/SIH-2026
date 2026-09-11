@@ -124,7 +124,7 @@ class AgentExecutor:
         return result
 
     def call_model(self, model_tag: str, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Call local Ollama model endpoint."""
+        """Call local Ollama model endpoint with fallback to installed models if needed."""
         url = f"{self.ollama_host}/api/generate"
         payload = {
             "model": model_tag,
@@ -141,6 +141,27 @@ class AgentExecutor:
                 res_text = resp.json().get("response", "")
                 logger.info(f"Ollama response character count: {len(res_text)}")
                 return res_text
+            elif resp.status_code == 404:
+                # First try adding or stripping :latest before falling back
+                alt_tag = f"{model_tag}:latest" if ":" not in model_tag else model_tag.split(":")[0]
+                try:
+                    payload["model"] = alt_tag
+                    fb_resp = requests.post(url, json=payload, timeout=60.0)
+                    if fb_resp.status_code == 200:
+                        return fb_resp.json().get("response", "")
+                except Exception:
+                    pass
+
+                # Fallback to installed model if tag not pulled
+                for fallback_tag in ["llama3.1:8b", "deepseek-r1:7b", "qwen2.5-coder:7b", "moondream:latest"]:
+                    if fallback_tag != model_tag and fallback_tag != alt_tag:
+                        try:
+                            payload["model"] = fallback_tag
+                            fb_resp = requests.post(url, json=payload, timeout=60.0)
+                            if fb_resp.status_code == 200:
+                                return fb_resp.json().get("response", "")
+                        except Exception:
+                            pass
             else:
                 logger.error(f"Ollama error status {resp.status_code}: {resp.text}")
         except Exception as e:
@@ -312,6 +333,16 @@ class AgentExecutor:
 
     def _generate_plan(self, prompt: str, task_type: str, attachments: List[str]) -> List[Dict[str, Any]]:
         """Deconstruct user request into structured actionable steps."""
+        if task_type == "manual_override":
+            try:
+                import os
+                from orchestrator.router.classifier import TaskClassifier
+                att_types = [os.path.splitext(a)[1].lower().replace(".", "") for a in attachments] if attachments else None
+                classified = TaskClassifier().classify(prompt, att_types)
+                task_type = classified.task_type
+            except Exception as e:
+                logger.warning(f"Could not classify task_type for manual_override: {e}")
+
         has_image = any(a.endswith(('.png', '.jpg', '.jpeg', '.pdf')) for a in attachments)
         
         if task_type == "vision_ocr" or (has_image and "ocr" in prompt.lower()):
@@ -401,6 +432,20 @@ class AgentExecutor:
                 }
             ]
 
+        # Check for text / markdown / code file attachments
+        text_attachments = [a for a in attachments if any(a.lower().endswith(ext) for ext in [
+            '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.py', '.sh', '.csv', '.log', '.sql'
+        ])]
+        if text_attachments and not has_image and "approval note" not in prompt.lower() and "spreadsheet" not in prompt.lower():
+            steps = []
+            for att in text_attachments:
+                steps.append({
+                    "description": f"Read and inspect file content: {att}",
+                    "tool": "file_read",
+                    "arguments": {"filename": att}
+                })
+            return steps
+
         # Generic Multi-Step Plan
         return [
             {
@@ -454,7 +499,7 @@ class AgentExecutor:
             "if __name__ == '__main__':\n"
             "    success = validate_sensor_telemetry()\n"
             "    sys.exit(0 if success else 1)\n"
-        )
+            )
 
     def _synthesize_final_response(
         self,
@@ -462,10 +507,10 @@ class AgentExecutor:
         plan: List[Dict[str, Any]],
         context: Dict[str, Any],
         deliverables: List[Dict[str, Any]],
-        ollama_tag: str = "qwen3.5:4b",
+        ollama_tag: str = "llama3.1:8b",
         history: Optional[List[Dict[str, Any]]] = None
     ) -> str:
-        """Produce clean, direct LLM response using Qwen 3.5 without repetitive boilerplates."""
+        """Produce clean, direct LLM response using local model without repetitive boilerplates."""
         deliv_info = ""
         if deliverables:
             deliv_names = [d.get("name") for d in deliverables if d.get("name")]
@@ -476,11 +521,21 @@ class AgentExecutor:
             recent = history[-6:]
             hist_text = "Previous Conversation Context:\n" + "\n".join([f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in recent if m.get('content')]) + "\n\n"
 
+        file_snippets = ""
+        for k, v in context.items():
+            if isinstance(v, dict) and "content" in v and v.get("status") == "success":
+                c_text = str(v["content"])
+                if len(c_text) > 12000:
+                    c_text = c_text[:12000] + "\n... [truncated]"
+                file_snippets += f"\n\n[Uploaded Document/File Content]:\n{c_text}\n"
+
         synthesis_prompt = (
             f"{hist_text}"
             f"User Prompt: {prompt}\n"
+            f"{file_snippets}"
             f"{deliv_info}\n\n"
-            f"Instructions: Answer the user prompt directly, concisely, and helpfully. "
+            f"Instructions: Analyze the user prompt and any provided document/file content above. "
+            f"Answer the user prompt directly, concisely, and helpfully with high technical precision. "
             f"Do NOT output meta-commentary, audit logs, or disclaimers. "
             f"Provide only the direct answer and relevant technical details."
         )

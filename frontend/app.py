@@ -40,6 +40,7 @@ net_status = api_get("/v1/network-status") or {}
 egress_rate = net_status.get("external_egress_rate_bps", 0.0)
 models_data = api_get("/v1/models") or {}
 models_list = models_data.get("models", [])
+ollama_tags = api_get("/v1/models/ollama-library") or []
 recent_tasks = api_get("/v1/tasks") or []
 
 # Navigation View State
@@ -47,9 +48,16 @@ if "nav_view" not in st.session_state:
     st.session_state["nav_view"] = "Chat Canvas"
 nav_view = st.session_state["nav_view"]
 
+# Dynamic Active Model Label
+chosen_model = st.session_state.get("selected_model") or st.session_state.get("sb_model_select") or "Auto"
+if chosen_model == "Auto":
+    active_model_label = "Auto-Route"
+else:
+    active_model_label = chosen_model
+
 # Render Global Header & Sidebar
-render_header(gpu_info, egress_rate)
-render_sidebar(is_dark, models_list, recent_tasks, gpu_info)
+render_header(gpu_info, egress_rate, active_model_label)
+render_sidebar(is_dark, models_list, recent_tasks, gpu_info, ollama_tags)
 
 # Render Target View
 if nav_view == "Chat Canvas":

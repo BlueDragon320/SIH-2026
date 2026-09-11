@@ -1,5 +1,6 @@
 """
 Chat Canvas View: Supports Multi-Turn Thread Persistence, Suggestion Cards, and Left-Aligned Chat Input.
+Red Noir Design System with Crimson Accents.
 """
 import time
 import streamlit as st
@@ -12,9 +13,9 @@ def render_chat_view():
     # Empty State (Hero Section & Suggestion Cards)
     if not active_task_id:
         render_html("""
-        <div class="hero-container" style="text-align: center; margin: 2.5rem 0 2rem 0;">
-            <h1 class="hero-title" style="font-size: 2.1rem; font-weight: 600; letter-spacing: -0.025em; color: var(--text-primary); margin-bottom: 0.5rem;">What would you like to build?</h1>
-            <p class="hero-subtitle" style="font-size: 0.95rem; color: var(--text-muted);">Air-gapped on-premises intelligence · Zero external network calls</p>
+        <div class="hero-container">
+            <h1 class="hero-title">Design & Engineering Intelligence for <span class="text-red">Air-Gapped Operations</span></h1>
+            <p class="hero-subtitle">Air-Gapped Autonomous Intelligence · Zero External Egress</p>
         </div>
         """)
 
@@ -70,7 +71,7 @@ def render_chat_view():
                         "content": task_data.get("final_response"),
                         "steps": task_data.get("steps", []),
                         "deliverables": task_data.get("deliverables", []),
-                        "model": task_data.get("ollama_tag", "qwen3.5:4b"),
+                        "model": task_data.get("ollama_tag", "local-model"),
                         "task_type": task_data.get("task_type", "general_qa")
                     })
 
@@ -88,21 +89,21 @@ def render_chat_view():
 
                 elif role == "assistant":
                     with st.chat_message("assistant"):
-                        model_tag = msg.get("model") or task_data.get("ollama_tag", "qwen3.5:4b")
+                        model_tag = msg.get("model") or task_data.get("ollama_tag") or "local-model"
                         task_cat = msg.get("task_type") or task_data.get("task_type", "general_qa")
                         steps = msg.get("steps", [])
                         delivs = msg.get("deliverables", [])
 
                         render_html(f"""
-                        <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
-                            <span class="badge badge-blue">MODEL: {model_tag}</span>
+                        <div style="display:flex; gap:8px; margin-bottom:14px; align-items:center; flex-wrap:wrap;">
+                            <span class="badge badge-red"><span class="live-dot"></span>MODEL: {model_tag}</span>
                             <span class="badge badge-amber">TASK: {task_cat}</span>
-                            <span class="badge badge-green"><span class="live-dot"></span>AIR-GAP: VERIFIED</span>
+                            <span class="badge badge-green">AIR-GAP: VERIFIED</span>
                         </div>
                         """)
 
                         if steps:
-                            with st.expander(f"Execution Step Trace ({len(steps)} steps completed)", expanded=False):
+                            with st.expander(f"⚙️ Execution Steps ({len(steps)} actions)", expanded=False):
                                 for s in steps:
                                     if isinstance(s, dict):
                                         st.markdown(f"**Step {s.get('step_number')} [{s.get('phase')}]:** {s.get('description')}")
@@ -111,29 +112,30 @@ def render_chat_view():
                                         if s.get("tool_output") and isinstance(s.get("tool_output"), dict):
                                             out_dict = s.get("tool_output")
                                             if out_dict.get("stdout"):
-                                                st.caption("Console Output:")
-                                                st.code(out_dict["stdout"], language="text")
-                                            elif out_dict.get("status"):
-                                                st.caption(f"Status: `{out_dict.get('status')}`")
+                                                st.code(out_dict.get("stdout"), language="bash")
+                                            if out_dict.get("error"):
+                                                st.error(out_dict.get("error"))
+                                    st.markdown("---")
 
-                        if content and content.strip():
+                        if content:
                             st.markdown(content)
 
                         if delivs:
-                            st.markdown("<div style='margin-top:1.2rem;'></div>", unsafe_allow_html=True)
-                            render_html('<div style="font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 8px;">GENERATED DELIVERABLES & OUTPUT PREVIEW</div>')
+                            st.markdown("<div style='margin-top:1.4rem;'></div>", unsafe_allow_html=True)
+                            render_html('<div style="font-family:\'JetBrains Mono\',monospace; font-size:0.74rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:10px;">GENERATED DELIVERABLES & OUTPUT PREVIEW</div>')
                             for idx, d in enumerate(delivs):
                                 fname = d.get("name") if isinstance(d, dict) else str(d)
                                 t_name = d.get("tool", "") if isinstance(d, dict) else ""
-                                render_deliverable_card(fname, tool_name=t_name, unique_prefix=f"chat_{active_task_id}_{turn_idx}_{idx}")
+                                render_deliverable_card(fname, tool_name=t_name, unique_prefix=f"t{turn_idx}_{idx}")
 
             # If task is currently running, display live loading banner and auto-poll
             if t_status == "RUNNING":
                 with st.chat_message("assistant"):
-                    render_html("""
-                    <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:10px; margin-top:8px;">
-                        <span style="font-size:1.2rem; animation: pulse 1.5s infinite; color:var(--accent-amber);">⚡</span>
-                        <span style="font-size:0.88rem; color:var(--text-primary); font-weight:500;">Qwen 3.5 is generating response...</span>
+                    running_model = task_data.get("ollama_tag") or st.session_state.get("selected_model", "Local LLM")
+                    render_html(f"""
+                    <div style="display:flex; align-items:center; gap:12px; padding:14px 18px; background:var(--bg-card); border:1px solid rgba(239, 35, 60, 0.4); border-radius:12px; margin-top:8px; box-shadow: 0 0 16px rgba(239, 35, 60, 0.15);">
+                        <span class="live-dot"></span>
+                        <span style="font-family:'Manrope',sans-serif; font-size:0.95rem; font-weight:500; color:var(--text-primary);"><span style="color:#ef233c; font-weight:700;">{running_model}</span> is reasoning & generating deliverable...</span>
                     </div>
                     """)
                     time.sleep(1.2)
@@ -142,46 +144,59 @@ def render_chat_view():
     # -------------------------------------------------------------
     # BOTTOM FLOATING CHAT INPUT SECTION
     # -------------------------------------------------------------
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
     incoming_prompt = st.session_state.pop("pending_prompt", "")
+    chat_input_val = st.chat_input(
+        "Write a message...",
+        accept_file="multiple",
+        file_type=[
+            "txt", "md", "markdown", "pdf", "docx", "csv", "xlsx", "xls",
+            "json", "yaml", "yml", "log", "py", "sh", "sql",
+            "png", "jpg", "jpeg", "webp", "bmp"
+        ]
+    )
 
-    with st.expander("Attach Document / Drawing / Dataset", expanded=False):
-        uploaded_files = st.file_uploader(
-            "Upload files",
-            type=["png", "jpg", "jpeg", "pdf", "docx", "csv", "txt"],
-            accept_multiple_files=True,
-            label_visibility="collapsed"
-        )
+    target_prompt = None
+    uploaded_files = []
+    if chat_input_val:
+        if hasattr(chat_input_val, "text"):
+            target_prompt = chat_input_val.text
+            uploaded_files = getattr(chat_input_val, "files", []) or []
+        elif isinstance(chat_input_val, dict):
+            target_prompt = chat_input_val.get("text", "")
+            uploaded_files = chat_input_val.get("files", []) or []
+        else:
+            target_prompt = str(chat_input_val)
 
-    chat_input_val = st.chat_input("Message Workbench...")
-    target_prompt = chat_input_val or incoming_prompt
+    if incoming_prompt and not target_prompt:
+        target_prompt = incoming_prompt
 
-    if target_prompt:
-        attachment_names = []
-        if uploaded_files:
-            for uf in uploaded_files:
-                up_res = api_post("/v1/workspace/upload", files={"file": (uf.name, uf.getvalue())})
-                if "filename" in up_res:
-                    attachment_names.append(up_res["filename"])
+    if target_prompt or uploaded_files:
+        with st.spinner("Processing request..."):
+            attachment_names = []
+            if uploaded_files:
+                for uf in uploaded_files:
+                    up_res = api_post("/v1/workspace/upload", files={"file": (uf.name, uf.getvalue())})
+                    if "filename" in up_res:
+                        attachment_names.append(up_res["filename"])
 
-        # Override model selection if chosen in sidebar
-        sb_model = st.session_state.get("selected_model", "Auto")
-        override_val = None if sb_model == "Auto" else sb_model
-        
-        # Submit prompt to existing active_task_id or start new chat session
-        res = api_post("/v1/task", data={
-            "prompt": target_prompt,
-            "attachments": attachment_names,
-            "manual_model_override": override_val,
-            "task_id": active_task_id if active_task_id else None
-        })
+            # Override model selection if chosen in sidebar
+            sb_model = st.session_state.get("selected_model") or st.session_state.get("sb_model_select") or "Auto"
+            override_val = None if sb_model == "Auto" else sb_model
+            
+            # Submit prompt to existing active_task_id or start new chat session
+            res = api_post("/v1/task", data={
+                "prompt": target_prompt or "Attached files inspection",
+                "attachments": attachment_names,
+                "manual_model_override": override_val,
+                "task_id": active_task_id if active_task_id else None
+            })
 
-        if res and "task_id" in res:
-            st.session_state["active_task_id"] = res["task_id"]
-            st.rerun()
+            if res and "task_id" in res:
+                st.session_state["active_task_id"] = res["task_id"]
+                st.rerun()
 
     render_html("""
     <div class="disclaimer">
-        Air-Gapped Autonomous Workbench · Model can make mistakes · Verify critical engineering outputs
+        Workbench operates in 100% on-premises air-gap mode. Code execution is isolated in secure sandbox.
     </div>
     """)

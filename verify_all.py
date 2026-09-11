@@ -121,7 +121,7 @@ def verify_dod_criteria():
     agent_state = agent.run_agent_loop(
         task_id=task_id,
         prompt="Feed in scanned inspection report, extract key findings, and draft approval note docx",
-        ollama_tag="qwen2.5-coder:3b",
+        ollama_tag="qwen2.5-coder:7b",
         task_type="doc_draft",
         attachments=["inspection_report_scan.pdf"]
     )

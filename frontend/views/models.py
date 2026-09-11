@@ -1,5 +1,6 @@
 """
 Models View: Model registry and zero-downtime model registration.
+Red Noir Design System with Crimson Accents.
 """
 import streamlit as st
 import pandas as pd
@@ -9,17 +10,18 @@ from frontend.components import render_html
 def render_models_view(models_list: list):
     render_html("""
     <div class="section-header">
-        <h2>Models & Hardware</h2>
+        <h2>Models & <span class="text-red">Hardware</span></h2>
         <p>Manage open-weight models and dynamically register new models without server restarts.</p>
     </div>
     """)
 
     if models_list:
+        render_html('<div style="font-family:\'JetBrains Mono\',monospace; font-size:0.74rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:10px;">ACTIVE REGISTERED MODELS</div>')
         df_m = pd.DataFrame(models_list)[["name", "ollama_tag", "capabilities", "vram_gb", "is_installed", "is_resident"]]
         st.dataframe(df_m, use_container_width=True, hide_index=True)
 
-    st.markdown("---")
-    st.markdown("##### Register New Model (Zero Downtime)")
+    st.markdown("<div style='margin: 1.5rem 0 1rem 0; border-top: 1px solid var(--border-color);'></div>", unsafe_allow_html=True)
+    render_html('<div style="font-family:\'JetBrains Mono\',monospace; font-size:0.74rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:10px;">REGISTER NEW MODEL (ZERO DOWNTIME)</div>')
     with st.form("reg_form"):
         r_name = st.text_input("Model Name", placeholder="e.g. specialized-qa")
         r_tag = st.text_input("Ollama Tag", placeholder="e.g. phi3:mini")

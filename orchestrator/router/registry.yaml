@@ -1,25 +1,38 @@
 models:
+- name: coding-primary
+  ollama_tag: qwen2.5-coder:7b
+  capabilities:
+  - code_gen
+  - code_review
+  - spreadsheet_calc
+  vram_gb: 4.7
+  context_window: 32768
+  description: State-of-the-art 7B coding model for Python scripting, debugging, and
+    sandbox automation
 - name: reasoning-primary
-  ollama_tag: qwen3.5:4b
+  ollama_tag: llama3.1:8b
   capabilities:
   - general_qa
   - doc_summarize
   - doc_draft
   - multi_step_plan
   - rag_search
-  vram_gb: 3.2
-  context_window: 32768
-  description: Fast Qwen 3.5 4B model for planning, general QA, document drafting
-    and synthesis
-- name: coding-primary
-  ollama_tag: qwen3.5:4b
+  vram_gb: 4.9
+  context_window: 131072
+  description: Meta Llama 3.1 8B with 128k context for document processing, Excel/PDF
+    extraction, and formal docx drafting
+- name: math-engineering
+  ollama_tag: deepseek-r1:7b
   capabilities:
-  - code_gen
-  - code_review
-  - spreadsheet_calc
-  vram_gb: 3.2
+  - math_reasoning
+  - engineering_calc
+  - physics_formula
+  - general_qa
+  - deep_reasoning
+  vram_gb: 4.7
   context_window: 32768
-  description: Qwen 3.5 4B model with robust code generation and function calling
+  description: DeepSeek R1 7B reasoning engine for advanced mathematics, physics formulas,
+    and engineering derivations
 - name: vision-primary
   ollama_tag: moondream
   capabilities:

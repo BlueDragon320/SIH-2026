@@ -149,19 +149,61 @@ class ModelRegistry:
     def route_task(self, prompt: str, attachment_types: Optional[List[str]] = None, manual_model_override: Optional[str] = None) -> RoutingDecision:
         """Route user prompt to best registered model based on capabilities and VRAM."""
         # 1. Check manual override
-        if manual_model_override and manual_model_override in self.models:
-            model = self.models[manual_model_override]
+        if manual_model_override and manual_model_override != "Auto":
+            target_tag = manual_model_override
+            selected_model_name = manual_model_override
+            vram = 4.0
+
+            # 1a. Exact match by registered model name (e.g. 'reasoning-primary', 'coding-primary')
+            if manual_model_override in self.models:
+                m = self.models[manual_model_override]
+                selected_model_name = m.name
+                target_tag = m.ollama_tag
+                vram = m.vram_gb
+            else:
+                # 1b. Exact match by registered model's exact ollama_tag (e.g. 'llama3.1:8b', 'deepseek-r1:7b')
+                exact_match = next((m for m in self.models.values() if m.ollama_tag == manual_model_override), None)
+                if exact_match:
+                    selected_model_name = exact_match.name
+                    target_tag = exact_match.ollama_tag
+                    vram = exact_match.vram_gb
+                else:
+                    # 1c. Normalized match (:latest or tag strip) in registered models
+                    norm_match = next((m for m in self.models.values() if m.ollama_tag.removesuffix(":latest") == manual_model_override.removesuffix(":latest")), None)
+                    if norm_match:
+                        selected_model_name = norm_match.name
+                        target_tag = norm_match.ollama_tag
+                        vram = norm_match.vram_gb
+                    else:
+                        # 1d. Check if tag exists in Ollama library on disk
+                        installed_tags = self.get_installed_tags_in_ollama()
+                        if manual_model_override in installed_tags:
+                            target_tag = manual_model_override
+                            selected_model_name = manual_model_override
+                        else:
+                            norm_inst = next((t for t in installed_tags if t.removesuffix(":latest") == manual_model_override.removesuffix(":latest")), None)
+                            if norm_inst:
+                                target_tag = norm_inst
+                                selected_model_name = norm_inst
+                            else:
+                                # 1e. Fallback to prefix matching ONLY if no exact match exists
+                                prefix_match = next((m for m in self.models.values() if m.ollama_tag.split(":")[0] == manual_model_override.split(":")[0]), None)
+                                if prefix_match:
+                                    selected_model_name = prefix_match.name
+                                    target_tag = prefix_match.ollama_tag
+                                    vram = prefix_match.vram_gb
+
             return RoutingDecision(
-                selected_model=model.name,
-                ollama_tag=model.ollama_tag,
+                selected_model=selected_model_name,
+                ollama_tag=target_tag,
                 task_type="manual_override",
-                classification_reason=f"Manually pinned to {model.name}",
+                classification_reason=f"Manually pinned to {selected_model_name} ({target_tag})",
                 confidence=1.0,
-                vram_budget_gb=model.vram_gb,
+                vram_budget_gb=vram,
                 notes="User explicit override"
             )
 
-        # 2. Classify task
+        # 2. Classify task (Auto routing mode: simple text -> fast model, files -> heavy/vision model)
         classification: ClassificationResult = self.classifier.classify(prompt, attachment_types)
         
         # 3. Match capability to model
@@ -185,7 +227,7 @@ class ModelRegistry:
         if not candidate_models:
             candidate_models = list(self.models.values())
         
-        # Pick best candidate (prefer lowest VRAM that satisfies requirements on 6GB GPU)
+        # Pick best candidate (prefer lowest VRAM for simple tasks, appropriate capacity for files)
         selected = sorted(candidate_models, key=lambda m: m.vram_gb)[0]
 
         decision = RoutingDecision(
@@ -195,6 +237,6 @@ class ModelRegistry:
             classification_reason=classification.reason,
             confidence=classification.confidence,
             vram_budget_gb=selected.vram_gb,
-            notes=f"Selected {selected.name} ({selected.ollama_tag}) satisfying capabilities {selected.capabilities}"
+            notes=f"Auto-routed to {selected.name} ({selected.ollama_tag}) satisfying capabilities {selected.capabilities}"
         )
         return decision

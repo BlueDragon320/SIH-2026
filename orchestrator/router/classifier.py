@@ -49,8 +49,8 @@ class TaskClassifier:
         prompt_lower = prompt.lower().strip()
         
         has_image = any(t in ["image", "png", "jpg", "jpeg", "webp", "bmp", "pdf_scanned"] for t in attachment_types)
-        has_spreadsheet = any(t in ["xlsx", "xls", "csv"] for t in attachment_types)
-        has_doc = any(t in ["pdf", "docx", "txt", "md"] for t in attachment_types)
+        has_spreadsheet = any(t in ["xlsx", "xls", "csv", "tsv"] for t in attachment_types)
+        has_doc = any(t in ["pdf", "docx", "txt", "md", "markdown", "log", "json", "yaml", "yml", "py", "sh"] for t in attachment_types)
 
         # Check for image/vision trigger first if attachment is image
         if has_image or any(re.search(p, prompt_lower) for p in self.vision_patterns):
