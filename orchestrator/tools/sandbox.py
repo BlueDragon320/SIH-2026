@@ -4,12 +4,14 @@ Executes Python scripts within strict Linux kernel namespace isolation (--unshar
 ensuring zero outbound network connectivity and ephemeral environment.
 """
 import os
+import sys
 import subprocess
 import shutil
 import time
 from typing import Dict, Any, Optional
 
-WORKSPACE_DIR = os.path.abspath("/home/blue/SIH/data/workspace")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", os.path.join(PROJECT_ROOT, "data", "workspace"))
 
 class SandboxResult:
     def __init__(self, stdout: str, stderr: str, exit_code: int, duration_sec: float, network_isolated: bool):
@@ -72,7 +74,7 @@ def execute_python_code(
         is_isolated = True
     else:
         # Fallback local runner if bwrap unavailable
-        cmd = ["python3", script_path]
+        cmd = [sys.executable, script_path]
         is_isolated = False
 
     try:

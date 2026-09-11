@@ -12,7 +12,8 @@ from orchestrator.rag.embed import LocalEmbedder
 
 logger = logging.getLogger("orchestrator.rag.vector_store")
 
-DB_DIR = os.path.abspath("/home/blue/SIH/data/chroma_db")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DB_DIR = os.environ.get("CHROMA_DB_DIR", os.path.join(PROJECT_ROOT, "data", "chroma_db"))
 
 class LocalVectorStore:
     def __init__(self, db_dir: str = DB_DIR):

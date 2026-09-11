@@ -42,7 +42,10 @@ class TestLocalVectorStore(unittest.TestCase):
         self.vector_store = LocalVectorStore(db_dir=self.temp_dir.name)
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_chunk_text(self):
         # Create a document with multiple paragraphs

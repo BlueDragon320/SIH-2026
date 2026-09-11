@@ -134,9 +134,15 @@ class AgentExecutor:
             "options": {"temperature": 0.1, "num_predict": 2048}
         }
         try:
-            resp = requests.post(url, json=payload, timeout=60.0)
+            logger.info(f"Calling Ollama model '{model_tag}' at {url} (prompt len: {len(prompt)})...")
+            resp = requests.post(url, json=payload, timeout=180.0)
+            logger.info(f"Ollama response status: {resp.status_code}")
             if resp.status_code == 200:
-                return resp.json().get("response", "")
+                res_text = resp.json().get("response", "")
+                logger.info(f"Ollama response character count: {len(res_text)}")
+                return res_text
+            else:
+                logger.error(f"Ollama error status {resp.status_code}: {resp.text}")
         except Exception as e:
             logger.error(f"Error calling model {model_tag}: {e}")
         return ""
@@ -159,16 +165,35 @@ class AgentExecutor:
         5. FINALIZE: Generate summary and deliverables
         """
         attachments = attachments or []
-        state = TaskState(
-            task_id=task_id,
-            prompt=prompt,
-            status="RUNNING",
-            model_assigned="active_router_selection",
-            ollama_tag=ollama_tag,
-            task_type=task_type,
-            created_at=datetime.datetime.now().isoformat(),
-            updated_at=datetime.datetime.now().isoformat()
-        )
+        existing = self.memory.get_task(task_id)
+        if existing:
+            state = existing
+            state.status = "RUNNING"
+            state.prompt = prompt
+            state.ollama_tag = ollama_tag
+            state.task_type = task_type
+            state.updated_at = datetime.datetime.now().isoformat()
+        else:
+            state = TaskState(
+                task_id=task_id,
+                prompt=prompt,
+                status="RUNNING",
+                model_assigned="active_router_selection",
+                ollama_tag=ollama_tag,
+                task_type=task_type,
+                messages=[],
+                created_at=datetime.datetime.now().isoformat(),
+                updated_at=datetime.datetime.now().isoformat()
+            )
+
+        # Append user message to history if not already present
+        if not state.messages or state.messages[-1].get("content") != prompt or state.messages[-1].get("role") != "user":
+            state.messages.append({
+                "role": "user",
+                "content": prompt,
+                "attachments": attachments,
+                "timestamp": datetime.datetime.now().isoformat()
+            })
         self.memory.save_task(state)
 
         logger.info(f"Starting Agent Loop for task {task_id} (type: {task_type}, model: {ollama_tag})")
@@ -180,7 +205,7 @@ class AgentExecutor:
         state.plan = plan_steps
         state.total_steps = len(plan_steps)
         state.steps.append(StepRecord(
-            step_number=1,
+            step_number=len(state.steps) + 1,
             phase="PLAN",
             description=f"Formulated execution plan ({len(plan_steps)} sub-steps)",
             tool_output={"plan": plan_steps},
@@ -205,7 +230,7 @@ class AgentExecutor:
             tool_args = self._resolve_arguments(tool_args, working_context, attachments)
 
             step_record = StepRecord(
-                step_number=idx + 1,
+                step_number=len(state.steps) + 1,
                 phase="ACT",
                 description=step_desc,
                 tool_name=tool_name,
@@ -258,10 +283,23 @@ class AgentExecutor:
         # -------------------------------------------------------------
         # STEP 4: FINALIZE
         # -------------------------------------------------------------
-        final_summary = self._synthesize_final_response(prompt, plan_steps, working_context, deliverables)
+        final_summary = self._synthesize_final_response(prompt, plan_steps, working_context, deliverables, ollama_tag=ollama_tag, history=state.messages)
         state.status = "COMPLETED"
-        state.deliverables = deliverables
+        if deliverables:
+            state.deliverables.extend(deliverables)
         state.final_response = final_summary
+
+        # Append assistant turn to messages
+        state.messages.append({
+            "role": "assistant",
+            "content": final_summary,
+            "steps": [s.model_dump() for s in state.steps],
+            "deliverables": deliverables,
+            "model": ollama_tag,
+            "task_type": task_type,
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+
         state.steps.append(StepRecord(
             step_number=len(state.steps) + 1,
             phase="FINALIZE",
@@ -423,24 +461,33 @@ class AgentExecutor:
         prompt: str,
         plan: List[Dict[str, Any]],
         context: Dict[str, Any],
-        deliverables: List[Dict[str, Any]]
+        deliverables: List[Dict[str, Any]],
+        ollama_tag: str = "qwen3.5:4b",
+        history: Optional[List[Dict[str, Any]]] = None
     ) -> str:
-        """Produce the final deliverable summary for the user."""
-        lines = [
-            "### Task Execution Summary (Air-Gapped Autonomous Agent)",
-            f"**User Objective:** {prompt}",
-            "",
-            f"**Completed Steps ({len(plan)}):**"
-        ]
-        for idx, p in enumerate(plan, 1):
-            lines.append(f"{idx}. {p.get('description')} (`{p.get('tool')}`)")
-        
+        """Produce clean, direct LLM response using Qwen 3.5 without repetitive boilerplates."""
+        deliv_info = ""
         if deliverables:
-            lines.append("")
-            lines.append("**Generated Deliverables:**")
-            for d in deliverables:
-                lines.append(f"- 📄 `{d['name']}` (Created by `{d['tool']}`)")
+            deliv_names = [d.get("name") for d in deliverables if d.get("name")]
+            deliv_info = f"\nGenerated files available in workspace: {', '.join(deliv_names)}"
 
-        lines.append("")
-        lines.append("🛡️ **Security Verification:** All operations executed on-premises with 0 outbound network calls.")
-        return "\n".join(lines)
+        hist_text = ""
+        if history and len(history) > 1:
+            recent = history[-6:]
+            hist_text = "Previous Conversation Context:\n" + "\n".join([f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in recent if m.get('content')]) + "\n\n"
+
+        synthesis_prompt = (
+            f"{hist_text}"
+            f"User Prompt: {prompt}\n"
+            f"{deliv_info}\n\n"
+            f"Instructions: Answer the user prompt directly, concisely, and helpfully. "
+            f"Do NOT output meta-commentary, audit logs, or disclaimers. "
+            f"Provide only the direct answer and relevant technical details."
+        )
+        llm_response = self.call_model(model_tag=ollama_tag, prompt=synthesis_prompt)
+
+        if llm_response and llm_response.strip():
+            return llm_response.strip()
+
+        # Fallback if model call fails
+        return f"Completed task '{prompt}'."

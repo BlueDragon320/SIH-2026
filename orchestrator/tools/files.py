@@ -6,7 +6,8 @@ import os
 import glob
 from typing import List, Dict, Any
 
-WORKSPACE_DIR = os.path.abspath("/home/blue/SIH/data/workspace")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", os.path.join(PROJECT_ROOT, "data", "workspace"))
 
 def _resolve_safe_path(filepath: str) -> str:
     """Ensure filepath resides within WORKSPACE_DIR and prevent path traversal."""

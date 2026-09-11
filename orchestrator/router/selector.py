@@ -29,8 +29,11 @@ class RoutingDecision(BaseModel):
     is_fallback: bool = False
     notes: str = ""
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DEFAULT_REGISTRY_PATH = os.environ.get("MODEL_REGISTRY_PATH", os.path.join(PROJECT_ROOT, "orchestrator", "router", "registry.yaml"))
+
 class ModelRegistry:
-    def __init__(self, registry_path: str = "/home/blue/SIH/orchestrator/router/registry.yaml", ollama_host: str = "http://127.0.0.1:11434"):
+    def __init__(self, registry_path: str = DEFAULT_REGISTRY_PATH, ollama_host: str = "http://127.0.0.1:11434"):
         self.registry_path = registry_path
         self.ollama_host = ollama_host
         self.classifier = TaskClassifier()

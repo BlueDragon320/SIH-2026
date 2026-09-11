@@ -44,7 +44,8 @@ class VisionOCRPipeline:
         """
         Extract text, tables, structured fields, or answer questions about an image or scanned document.
         """
-        workspace_dir = os.path.abspath("/home/blue/SIH/data/workspace")
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        workspace_dir = os.environ.get("WORKSPACE_DIR", os.path.join(project_root, "data", "workspace"))
         if not os.path.isabs(filepath):
             if os.path.exists(os.path.join(workspace_dir, filepath)):
                 filepath = os.path.join(workspace_dir, filepath)

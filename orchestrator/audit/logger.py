@@ -8,8 +8,9 @@ import json
 import datetime
 from typing import Dict, Any, List, Optional
 
-AUDIT_DB_PATH = os.path.abspath("/home/blue/SIH/data/audit.db")
-AUDIT_JSONL_PATH = os.path.abspath("/home/blue/SIH/data/audit_log.jsonl")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+AUDIT_DB_PATH = os.environ.get("AUDIT_DB_PATH", os.path.join(PROJECT_ROOT, "data", "audit.db"))
+AUDIT_JSONL_PATH = os.environ.get("AUDIT_JSONL_PATH", os.path.join(PROJECT_ROOT, "data", "audit_log.jsonl"))
 
 class AuditLogger:
     def __init__(self, db_path: str = AUDIT_DB_PATH):

@@ -1,7 +1,13 @@
-# Models & Model Weights
+# Models, Heavy Weights & Large Binary Files (>100MB / GBs)
 models/*
 !models/Modelfiles/
 !models/Modelfiles/**
+models/weights/
+checkpoints/
+hf_cache/
+huggingface/
+
+# Model Weight Formats (GGUF, Safetensors, PyTorch, ONNX, TensorRT, etc.)
 *.gguf
 *.bin
 *.safetensors
@@ -11,11 +17,30 @@ models/*
 *.weights
 *.ckpt
 *.model
+*.ot
+*.tflite
+*.h5
+*.engine
+*.blob
+*.tensor
+*.q4_k_m
+*.q4_0
+*.q5_k_m
+*.q8_0
 
-# Ollama Local Storage & Binaries
+# Ollama & Local LLM Model Storage
 .ollama/
 ollama_models/
 ollama-main/
+data/models/
+
+# Large Archives & Compressed Model Packages
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.rar
+*.iso
 
 # Python & Virtual Environments
 .venv/

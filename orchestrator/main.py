@@ -325,7 +325,8 @@ async def upload_workspace_file(file: UploadFile = File(...)):
 @app.post("/v1/knowledge-base/ingest")
 async def ingest_document(file: UploadFile = File(...)):
     """Upload and ingest a document into the local RAG vector store."""
-    kb_dir = "/home/blue/SIH/data/knowledge_base"
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    kb_dir = os.environ.get("KB_DIR", os.path.join(project_root, "data", "knowledge_base"))
     os.makedirs(kb_dir, exist_ok=True)
     target_path = os.path.join(kb_dir, file.filename)
     with open(target_path, "wb") as f:

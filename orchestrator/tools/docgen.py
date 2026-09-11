@@ -16,7 +16,8 @@ from pptx import Presentation
 from pptx.util import Inches as PptxInches, Pt as PptxPt
 from pptx.dml.color import RGBColor as PptxRGBColor
 
-WORKSPACE_DIR = os.path.abspath("/home/blue/SIH/data/workspace")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", os.path.join(PROJECT_ROOT, "data", "workspace"))
 
 def _set_cell_background(cell, fill_hex: str):
     """Set background color of a docx table cell."""

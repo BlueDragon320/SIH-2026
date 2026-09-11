@@ -41,12 +41,15 @@ def print_header(title: str):
     print(f"{BOLD}{CYAN}  {title.upper()}{RESET}")
     print(f"{BOLD}{CYAN}{'='*80}{RESET}\n")
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 def print_substep(step_num: str, title: str, status: bool, detail: str = ""):
     symbol = f"{GREEN}[PASS]{RESET}" if status else f"{RED}[FAIL]{RESET}"
     print(f"  {BOLD}{step_num}{RESET} {symbol} {BOLD}{title}{RESET}")
     if detail:
         for line in detail.strip().split("\n"):
-            print(f"       {CYAN}│{RESET} {line}")
+            print(f"       {CYAN}|{RESET} {line}")
 
 def run_automated_test_suite() -> bool:
     print_header("Step 1: Automated Unit & Integration Test Suite")

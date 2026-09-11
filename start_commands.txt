@@ -1,0 +1,35 @@
+================================================================================
+ AIR-GAPPED AGENTIC AI WORKBENCH - STARTUP COMMANDS
+================================================================================
+
+PREREQUISITE 1: Ensure Ollama is running with qwen3.5:4b loaded.
+--------------------------------------------------------------------------------
+In Terminal 1 (or start Ollama background service):
+  ollama serve
+
+To verify installed models:
+  ollama list
+
+
+STEP 1: Start the FastAPI Backend Server (Port 8000)
+--------------------------------------------------------------------------------
+Open Terminal / Command Prompt in the project root directory (c:\SIH\SIH-2026) and run:
+
+  python -m uvicorn orchestrator.main:app --host 127.0.0.1 --port 8000
+
+
+STEP 2: Start the Streamlit Frontend Interface (Port 8501)
+--------------------------------------------------------------------------------
+Open a NEW Terminal / Command Prompt in the project root directory (c:\SIH\SIH-2026) and run:
+
+  streamlit run frontend/app.py --server.port 8501 --server.address 127.0.0.1
+
+
+ACCESS THE WORKBENCH UI:
+--------------------------------------------------------------------------------
+Open your web browser and navigate to:
+  http://127.0.0.1:8501
+
+Backend API Docs (Swagger):
+  http://127.0.0.1:8000/docs
+================================================================================

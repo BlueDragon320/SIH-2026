@@ -1,24 +1,25 @@
 models:
 - name: reasoning-primary
-  ollama_tag: qwen2.5-coder:3b
+  ollama_tag: qwen3.5:4b
   capabilities:
   - general_qa
   - doc_summarize
   - doc_draft
   - multi_step_plan
   - rag_search
-  vram_gb: 2.2
+  vram_gb: 3.2
   context_window: 32768
-  description: Fast 3B model for planning, general QA, document drafting and synthesis
+  description: Fast Qwen 3.5 4B model for planning, general QA, document drafting
+    and synthesis
 - name: coding-primary
-  ollama_tag: qwen2.5-coder:3b
+  ollama_tag: qwen3.5:4b
   capabilities:
   - code_gen
   - code_review
   - spreadsheet_calc
-  vram_gb: 2.2
+  vram_gb: 3.2
   context_window: 32768
-  description: Specialized coding and calculation model with robust function calling
+  description: Qwen 3.5 4B model with robust code generation and function calling
 - name: vision-primary
   ollama_tag: moondream
   capabilities:

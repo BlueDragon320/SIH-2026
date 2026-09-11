@@ -8,7 +8,8 @@ import datetime
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 
-DB_PATH = os.path.abspath("/home/blue/SIH/data/agent_tasks.db")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DB_PATH = os.environ.get("TASK_DB_PATH", os.path.join(PROJECT_ROOT, "data", "agent_tasks.db"))
 
 class StepRecord(BaseModel):
     step_number: int
@@ -32,6 +33,7 @@ class TaskState(BaseModel):
     total_steps: int = 0
     steps: List[StepRecord] = []
     deliverables: List[Dict[str, Any]] = []
+    messages: List[Dict[str, Any]] = []
     final_response: Optional[str] = ""
     created_at: str
     updated_at: str
@@ -58,11 +60,17 @@ class TaskMemoryStore:
                 total_steps INTEGER,
                 steps_json TEXT,
                 deliverables_json TEXT,
+                messages_json TEXT,
                 final_response TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )
         """)
+        # Add messages_json column if missing from legacy table schema
+        try:
+            cur.execute("ALTER TABLE tasks ADD COLUMN messages_json TEXT")
+        except Exception:
+            pass
         conn.commit()
         conn.close()
 
@@ -73,8 +81,8 @@ class TaskMemoryStore:
             INSERT OR REPLACE INTO tasks (
                 task_id, prompt, status, model_assigned, ollama_tag, task_type,
                 plan_json, current_step, total_steps, steps_json, deliverables_json,
-                final_response, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                messages_json, final_response, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             state.task_id,
             state.prompt,
@@ -87,6 +95,7 @@ class TaskMemoryStore:
             state.total_steps,
             json.dumps([s.model_dump() for s in state.steps]),
             json.dumps(state.deliverables),
+            json.dumps(state.messages),
             state.final_response,
             state.created_at,
             datetime.datetime.now().isoformat()
@@ -94,16 +103,24 @@ class TaskMemoryStore:
         conn.commit()
         conn.close()
 
-    def get_task(self, task_id: str) -> Optional[TaskState]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,))
-        row = cur.fetchone()
-        conn.close()
-
-        if not row:
-            return None
+    def _build_task_state(self, row: sqlite3.Row) -> TaskState:
+        row_keys = row.keys()
+        raw_msgs = json.loads(row["messages_json"] or "[]") if "messages_json" in row_keys and row["messages_json"] else []
+        
+        # Fallback to single message turn for legacy database rows
+        if not raw_msgs:
+            raw_msgs = []
+            if row["prompt"]:
+                raw_msgs.append({"role": "user", "content": row["prompt"]})
+            if row["final_response"]:
+                raw_msgs.append({
+                    "role": "assistant",
+                    "content": row["final_response"],
+                    "steps": json.loads(row["steps_json"] or "[]"),
+                    "deliverables": json.loads(row["deliverables_json"] or "[]"),
+                    "model": row["ollama_tag"],
+                    "task_type": row["task_type"]
+                })
 
         return TaskState(
             task_id=row["task_id"],
@@ -117,10 +134,24 @@ class TaskMemoryStore:
             total_steps=row["total_steps"],
             steps=[StepRecord(**s) for s in json.loads(row["steps_json"] or "[]")],
             deliverables=json.loads(row["deliverables_json"] or "[]"),
+            messages=raw_msgs,
             final_response=row["final_response"],
             created_at=row["created_at"],
             updated_at=row["updated_at"]
         )
+
+    def get_task(self, task_id: str) -> Optional[TaskState]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return self._build_task_state(row)
 
     def list_all_tasks(self, limit: int = 20) -> List[TaskState]:
         conn = sqlite3.connect(self.db_path)
@@ -130,25 +161,7 @@ class TaskMemoryStore:
         rows = cur.fetchall()
         conn.close()
         
-        tasks = []
-        for row in rows:
-            tasks.append(TaskState(
-                task_id=row["task_id"],
-                prompt=row["prompt"],
-                status=row["status"],
-                model_assigned=row["model_assigned"],
-                ollama_tag=row["ollama_tag"],
-                task_type=row["task_type"],
-                plan=json.loads(row["plan_json"] or "[]"),
-                current_step=row["current_step"],
-                total_steps=row["total_steps"],
-                steps=[StepRecord(**s) for s in json.loads(row["steps_json"] or "[]")],
-                deliverables=json.loads(row["deliverables_json"] or "[]"),
-                final_response=row["final_response"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"]
-            ))
-        return tasks
+        return [self._build_task_state(row) for row in rows]
 
     def delete_task(self, task_id: str) -> bool:
         conn = sqlite3.connect(self.db_path)
