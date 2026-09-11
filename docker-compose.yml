@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: workbench-ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_KEEP_ALIVE=15m
+    volumes:
+      - ./data/ollama_storage:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - airgap-internal
+
+  orchestrator:
+    build: .
+    container_name: workbench-orchestrator
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8501:8501"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - ./data/workspace:/app/data/workspace
+      - ./data/knowledge_base:/app/data/knowledge_base
+      - ./data/chroma_db:/app/data/chroma_db
+    depends_on:
+      - ollama
+    networks:
+      - airgap-internal
+
+networks:
+  airgap-internal:
+    driver: bridge
+    internal: true # Disables default gateway / internet access

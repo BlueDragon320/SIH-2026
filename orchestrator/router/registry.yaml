@@ -1,0 +1,55 @@
+models:
+- name: reasoning-primary
+  ollama_tag: qwen2.5-coder:3b
+  capabilities:
+  - general_qa
+  - doc_summarize
+  - doc_draft
+  - multi_step_plan
+  - rag_search
+  vram_gb: 2.2
+  context_window: 32768
+  description: Fast 3B model for planning, general QA, document drafting and synthesis
+- name: coding-primary
+  ollama_tag: qwen2.5-coder:3b
+  capabilities:
+  - code_gen
+  - code_review
+  - spreadsheet_calc
+  vram_gb: 2.2
+  context_window: 32768
+  description: Specialized coding and calculation model with robust function calling
+- name: vision-primary
+  ollama_tag: moondream
+  capabilities:
+  - vision_ocr
+  - drawing_analysis
+  - image_qa
+  vram_gb: 2.0
+  context_window: 4096
+  description: Lightweight 1.8B vision-language model for OCR, inspection photos,
+    and drawings
+- name: embeddings
+  ollama_tag: nomic-embed-text
+  capabilities:
+  - embedding
+  vram_gb: 0.3
+  context_window: 8192
+  description: High-accuracy local embedding model for air-gapped vector store
+- name: deepseek-coder-v2-test
+  ollama_tag: deepseek-coder-v2:16b
+  capabilities:
+  - code_gen
+  - deep_analysis
+  - test_bench
+  vram_gb: 8.5
+  context_window: 65536
+  description: High parameter coding model for complex refactors
+- name: deepseek-r1-airgap-audit
+  ollama_tag: deepseek-r1:14b
+  capabilities:
+  - deep_reasoning
+  - defence_compliance_audit
+  vram_gb: 8.0
+  context_window: 65536
+  description: Hot-registered model for defence compliance auditing

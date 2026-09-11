@@ -1,0 +1,50 @@
+# Models & Model Weights
+models/*
+!models/Modelfiles/
+!models/Modelfiles/**
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.weights
+*.ckpt
+*.model
+
+# Ollama Local Storage & Binaries
+.ollama/
+ollama_models/
+ollama-main/
+
+# Python & Virtual Environments
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+
+# Local Databases, Vector Store & Workspace Artifacts
+data/agent_tasks.db
+data/audit.db
+data/audit_log.jsonl
+data/chroma_db/
+data/workspace/*
+!data/workspace/.gitkeep
+data/*.log
+*.log
+
+# Configuration & Secrets
+.env
+.env.local
+!.env.example
+
+# OS & Editor Metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
