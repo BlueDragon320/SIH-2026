@@ -25,13 +25,13 @@ if "%ERRORLEVEL%"=="0" (
 
 REM 2. Launch FastAPI Backend Orchestrator (Port 8000)
 echo [2/3] Launching FastAPI Backend on http://127.0.0.1:8000 ...
-start "Workbench FastAPI Backend" cmd /k "python -m uvicorn orchestrator.main:app --host 127.0.0.1 --port 8000"
+start "Workbench FastAPI Backend" cmd /k "cd /d "%~dp0" && set PYTHONPATH=%~dp0&& python -m uvicorn orchestrator.main:app --host 127.0.0.1 --port 8000"
 
 timeout /t 3 /nobreak >nul
 
 REM 3. Launch Modern React Web UI (Port 5173)
 echo [3/3] Launching Modern React Web UI on http://localhost:5173 ...
-start "Workbench Web UI" cmd /k "cd frontend-web && npm run dev -- --host 0.0.0.0 --port 5173"
+start "Workbench Web UI" cmd /k "cd /d "%~dp0frontend-web" && npm run dev -- --host 0.0.0.0 --port 5173"
 
 timeout /t 4 /nobreak >nul
 

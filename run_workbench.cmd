@@ -1,2 +1,4 @@
 @echo off
-python launch_system.py
+cd /d "%~dp0"
+set PYTHONPATH=%~dp0
+python start.py
