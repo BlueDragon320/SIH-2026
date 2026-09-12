@@ -65,17 +65,21 @@ def execute_python_code(
             "--unshare-ipc",      # Disable IPC with host
             "--unshare-pid",      # New PID namespace
             "--ro-bind", "/", "/", # Read-only access to system binaries/libs
+            "--tmpfs", "/tmp",    # Isolated ephemeral ramfs for /tmp and cache
             "--bind", WORKSPACE_DIR, WORKSPACE_DIR, # Read-write access to workspace only
             "--chdir", WORKSPACE_DIR,
             "--proc", "/proc",
             "--dev", "/dev",
-            "python3", script_path
+            sys.executable, script_path
         ]
         is_isolated = True
     else:
         # Fallback local runner if bwrap unavailable
         cmd = [sys.executable, script_path]
         is_isolated = False
+
+    sandbox_env = dict(os.environ)
+    sandbox_env["MPLCONFIGDIR"] = "/tmp"
 
     try:
         proc = subprocess.run(
@@ -84,7 +88,8 @@ def execute_python_code(
             stderr=subprocess.PIPE,
             text=True,
             timeout=timeout_sec,
-            cwd=WORKSPACE_DIR
+            cwd=WORKSPACE_DIR,
+            env=sandbox_env
         )
         duration = time.time() - start_time
         res = SandboxResult(
@@ -114,6 +119,7 @@ def execute_python_code(
         )
 
     out = res.to_dict()
+    out["status"] = "success" if res.success else "error"
     out["saved_script"] = script_relname
     out["deliverable_path"] = script_path
     return out

@@ -352,3 +352,80 @@ async def ingest_document(file: UploadFile = File(...)):
 def list_kb_documents():
     """List all documents indexed in the local knowledge base."""
     return vector_store.list_indexed_documents()
+
+class RAGQueryRequest(BaseModel):
+    query: str
+    top_k: Optional[int] = 4
+
+@app.post("/v1/knowledge-base/query-chunks")
+def query_kb_chunks(req: RAGQueryRequest):
+    """Retrieve raw chunks from local ChromaDB with similarity scores for artifact inspection."""
+    results = vector_store.hybrid_search(query=req.query, top_k=req.top_k or 4)
+    return {
+        "query": req.query,
+        "results": results,
+        "total_results": len(results)
+    }
+
+@app.get("/v1/hardware-status")
+def get_hardware_status():
+    """Live GPU VRAM, utilization, temperature, CPU, and RAM telemetry."""
+    import subprocess
+    import shutil
+    import psutil
+
+    gpu_info = {
+        "available": False,
+        "name": "N/A",
+        "vram_total_mb": 0.0,
+        "vram_used_mb": 0.0,
+        "vram_free_mb": 0.0,
+        "gpu_util_percent": 0.0,
+        "temperature_c": 0.0
+    }
+
+    if shutil.which("nvidia-smi"):
+        try:
+            res = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=1.5
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                parts = [p.strip() for p in res.stdout.strip().split(",")]
+                if len(parts) >= 6:
+                    gpu_info = {
+                        "available": True,
+                        "name": parts[0],
+                        "vram_total_mb": float(parts[1]),
+                        "vram_used_mb": float(parts[2]),
+                        "vram_free_mb": float(parts[3]),
+                        "gpu_util_percent": float(parts[4]),
+                        "temperature_c": float(parts[5])
+                    }
+        except Exception:
+            pass
+
+    # Host CPU & RAM
+    cpu_percent = 0.0
+    ram_info = {"total_mb": 0.0, "used_mb": 0.0, "percent": 0.0}
+    try:
+        cpu_percent = psutil.cpu_percent(interval=None)
+        vm = psutil.virtual_memory()
+        ram_info = {
+            "total_mb": round(vm.total / (1024 * 1024), 1),
+            "used_mb": round(vm.used / (1024 * 1024), 1),
+            "percent": vm.percent
+        }
+    except Exception:
+        pass
+
+    loaded_models = registry.get_loaded_models_in_ollama()
+
+    return {
+        "gpu": gpu_info,
+        "cpu_percent": cpu_percent,
+        "ram": ram_info,
+        "loaded_models": loaded_models,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+

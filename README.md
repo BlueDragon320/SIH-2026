@@ -47,10 +47,10 @@ Run the master startup script:
 This starts:
 - **Ollama Serving Layer**: `http://127.0.0.1:11434` (Tuned for 6GB VRAM: `OLLAMA_MAX_LOADED_MODELS=2`)
 - **FastAPI Control-Plane Orchestrator**: `http://127.0.0.1:8000`
-- **Streamlit Interactive UI**: `http://127.0.0.1:8501`
+- **Modern React Web UI (Vite)**: `http://127.0.0.1:5173` (with direct proxying to `/api` and `/ollama`)
 
 ### 2. Access the Web Dashboard
-Open [http://127.0.0.1:8501](http://127.0.0.1:8501) in your browser.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) in your browser.
 
 ---
 
@@ -66,10 +66,12 @@ To verify all 6 Definition-of-Done criteria from the specification:
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│         Streamlit Interactive UI (Port 8501)           │
+│     Modern React Web UI - Vite Frontend (Port 5173)    │
 │  (Chat | Live Timeline | Deliverables | Egress Meter)  │
+│      ├── Reverse Proxy `/api`    → http://127.0.0.1:8000
+│      └── Reverse Proxy `/ollama` → http://127.0.0.1:11434
 └───────────────────────────┬────────────────────────────┘
-                            │ REST / WebSocket
+                            │ REST / Proxy
 ┌───────────────────────────▼────────────────────────────┐
 │      FastAPI Orchestrator Control-Plane (Port 8000)    │
 │  ┌────────────────────────┐  ┌──────────────────────┐  │

@@ -205,6 +205,29 @@ class TestModelSelector(unittest.TestCase):
         self.assertIn("deepseek-r1-evaluator", reloaded.models)
         self.assertEqual(reloaded.models["deepseek-r1-evaluator"].vram_gb, 4.5)
 
+    def test_document_upload_auto_selection(self):
+        # When ANY document is uploaded in auto-select, route to reasoning-primary
+        decision_csv = self.registry.route_task("Analyze these numbers", attachment_types=["csv"])
+        self.assertEqual(decision_csv.selected_model, "reasoning-primary")
+        self.assertEqual(decision_csv.task_type, "doc_analysis")
+
+        decision_xlsx = self.registry.route_task("Check trade ledger", attachment_types=["xlsx"])
+        self.assertEqual(decision_xlsx.selected_model, "reasoning-primary")
+        self.assertEqual(decision_xlsx.task_type, "doc_analysis")
+
+        decision_pdf = self.registry.route_task("Summarize report", attachment_types=["pdf"])
+        self.assertEqual(decision_pdf.selected_model, "reasoning-primary")
+
+    def test_manual_model_override_formatted_labels(self):
+        # Override with UI label string
+        decision = self.registry.route_task(
+            prompt="Analyze trade file",
+            attachment_types=["csv"],
+            manual_model_override="● Qwen 2.5 Coder 7B (Coding)"
+        )
+        self.assertEqual(decision.selected_model, "coding-primary")
+        self.assertEqual(decision.task_type, "manual_override")
+
     def test_fallback_selection(self):
         # Even if capability isn't directly in top list, selection succeeds gracefully
         decision = self.registry.route_task("Unknown ambiguous prompt with no matched keywords")

@@ -146,64 +146,113 @@ class ModelRegistry:
         return []
 
 
+    def resolve_model_override(self, override: str) -> Optional[ModelSpec]:
+        """Resolve a manual model override string (tag, name, or UI label) to ModelSpec."""
+        if not override or override == "Auto":
+            return None
+        
+        override_clean = override.strip()
+        
+        # 1. Exact match by registered model name (e.g. 'reasoning-primary')
+        if override_clean in self.models:
+            return self.models[override_clean]
+        
+        # 2. Exact match by registered model's exact ollama_tag (e.g. 'llama3.1:8b')
+        for m in self.models.values():
+            if m.ollama_tag == override_clean:
+                return m
+                
+        # 3. Normalized tag match (strip :latest or add :latest)
+        norm_override = override_clean.removesuffix(":latest")
+        for m in self.models.values():
+            if m.ollama_tag.removesuffix(":latest") == norm_override:
+                return m
+
+        # 4. Search within UI formatted labels or substrings (e.g. '● Llama 3.1 8B (General & Docs)')
+        override_lower = override_clean.lower()
+        if "llama" in override_lower or "3.1" in override_lower:
+            llama_m = self.models.get("reasoning-primary") or next((m for m in self.models.values() if "llama" in m.ollama_tag.lower()), None)
+            if llama_m:
+                return llama_m
+        if "qwen" in override_lower or "coder" in override_lower:
+            qwen_m = self.models.get("coding-primary") or next((m for m in self.models.values() if "qwen" in m.ollama_tag.lower()), None)
+            if qwen_m:
+                return qwen_m
+        if "deepseek" in override_lower or "r1" in override_lower:
+            ds_m = self.models.get("math-engineering") or next((m for m in self.models.values() if "deepseek" in m.ollama_tag.lower()), None)
+            if ds_m:
+                return ds_m
+        if "moondream" in override_lower or "vision" in override_lower:
+            moon_m = self.models.get("vision-primary") or next((m for m in self.models.values() if "moondream" in m.ollama_tag.lower()), None)
+            if moon_m:
+                return moon_m
+
+        # 5. Check if any registered model's tag or name appears in override string
+        for m in self.models.values():
+            if m.ollama_tag.lower() in override_lower or m.name.lower() in override_lower:
+                return m
+
+        # 6. Check installed tags in Ollama library on disk
+        installed_tags = self.get_installed_tags_in_ollama()
+        for t in installed_tags:
+            if t == override_clean or t.removesuffix(":latest") == norm_override or t.lower() in override_lower:
+                return ModelSpec(
+                    name=t,
+                    ollama_tag=t,
+                    capabilities=["general_qa"],
+                    vram_gb=4.5,
+                    context_window=32768,
+                    description=f"Installed Ollama model: {t}"
+                )
+
+        return None
+
     def route_task(self, prompt: str, attachment_types: Optional[List[str]] = None, manual_model_override: Optional[str] = None) -> RoutingDecision:
         """Route user prompt to best registered model based on capabilities and VRAM."""
-        # 1. Check manual override
+        # 1. Check manual override (highest priority)
         if manual_model_override and manual_model_override != "Auto":
-            target_tag = manual_model_override
-            selected_model_name = manual_model_override
-            vram = 4.0
-
-            # 1a. Exact match by registered model name (e.g. 'reasoning-primary', 'coding-primary')
-            if manual_model_override in self.models:
-                m = self.models[manual_model_override]
-                selected_model_name = m.name
-                target_tag = m.ollama_tag
-                vram = m.vram_gb
+            spec = self.resolve_model_override(manual_model_override)
+            if spec:
+                return RoutingDecision(
+                    selected_model=spec.name,
+                    ollama_tag=spec.ollama_tag,
+                    task_type="manual_override",
+                    classification_reason=f"Manually pinned to {spec.name} ({spec.ollama_tag})",
+                    confidence=1.0,
+                    vram_budget_gb=spec.vram_gb,
+                    notes="User explicit override"
+                )
             else:
-                # 1b. Exact match by registered model's exact ollama_tag (e.g. 'llama3.1:8b', 'deepseek-r1:7b')
-                exact_match = next((m for m in self.models.values() if m.ollama_tag == manual_model_override), None)
-                if exact_match:
-                    selected_model_name = exact_match.name
-                    target_tag = exact_match.ollama_tag
-                    vram = exact_match.vram_gb
-                else:
-                    # 1c. Normalized match (:latest or tag strip) in registered models
-                    norm_match = next((m for m in self.models.values() if m.ollama_tag.removesuffix(":latest") == manual_model_override.removesuffix(":latest")), None)
-                    if norm_match:
-                        selected_model_name = norm_match.name
-                        target_tag = norm_match.ollama_tag
-                        vram = norm_match.vram_gb
-                    else:
-                        # 1d. Check if tag exists in Ollama library on disk
-                        installed_tags = self.get_installed_tags_in_ollama()
-                        if manual_model_override in installed_tags:
-                            target_tag = manual_model_override
-                            selected_model_name = manual_model_override
-                        else:
-                            norm_inst = next((t for t in installed_tags if t.removesuffix(":latest") == manual_model_override.removesuffix(":latest")), None)
-                            if norm_inst:
-                                target_tag = norm_inst
-                                selected_model_name = norm_inst
-                            else:
-                                # 1e. Fallback to prefix matching ONLY if no exact match exists
-                                prefix_match = next((m for m in self.models.values() if m.ollama_tag.split(":")[0] == manual_model_override.split(":")[0]), None)
-                                if prefix_match:
-                                    selected_model_name = prefix_match.name
-                                    target_tag = prefix_match.ollama_tag
-                                    vram = prefix_match.vram_gb
+                return RoutingDecision(
+                    selected_model=manual_model_override,
+                    ollama_tag=manual_model_override,
+                    task_type="manual_override",
+                    classification_reason=f"Manually pinned to {manual_model_override}",
+                    confidence=1.0,
+                    vram_budget_gb=4.5,
+                    notes="User explicit override"
+                )
 
-            return RoutingDecision(
-                selected_model=selected_model_name,
-                ollama_tag=target_tag,
-                task_type="manual_override",
-                classification_reason=f"Manually pinned to {selected_model_name} ({target_tag})",
-                confidence=1.0,
-                vram_budget_gb=vram,
-                notes="User explicit override"
-            )
+        # 2. Check if non-image documents are uploaded (CSV, XLSX, XLS, PDF, DOCX, TXT, JSON, etc.)
+        # When in Auto-Select mode, ANY document upload MUST automatically route to reasoning-primary (Llama 3.1 8B, 128k context)
+        non_image_docs = [
+            t for t in (attachment_types or [])
+            if t.lower() not in ["image", "png", "jpg", "jpeg", "webp", "bmp"]
+        ]
+        if non_image_docs:
+            llama_model = self.models.get("reasoning-primary") or next((m for m in self.models.values() if "llama3.1" in m.ollama_tag), None)
+            if llama_model:
+                return RoutingDecision(
+                    selected_model=llama_model.name,
+                    ollama_tag=llama_model.ollama_tag,
+                    task_type="doc_analysis",
+                    classification_reason=f"Document upload ({', '.join(non_image_docs)}) detected - auto-selected Llama 3.1 8B (128k context)",
+                    confidence=0.98,
+                    vram_budget_gb=llama_model.vram_gb,
+                    notes=f"Auto-routed document upload to {llama_model.name} ({llama_model.ollama_tag})"
+                )
 
-        # 2. Classify task (Auto routing mode: simple text -> fast model, files -> heavy/vision model)
+        # 3. Classify task (Auto routing mode without document uploads)
         classification: ClassificationResult = self.classifier.classify(prompt, attachment_types)
         
         # 3. Match capability to model

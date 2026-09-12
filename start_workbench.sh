@@ -2,14 +2,22 @@
 # ==============================================================================
 # Air-Gapped Agentic AI Workbench — Master Launch & Service Controller
 # Configured for NVIDIA RTX 3060 (6GB VRAM) & Air-Gapped Zero-Egress Operation
+#
+# Launches 3 Core Air-Gapped Services:
+#   1. Ollama LLM/VLM Daemon       -> http://127.0.0.1:11434
+#   2. FastAPI Control Orchestrator -> http://127.0.0.1:8000
+#   3. Modern React Web Application -> http://127.0.0.1:5173 (via Vite Dev Server)
 # ==============================================================================
 
 set -e
 
 PROJECT_DIR="/home/blue/SIH"
+FRONTEND_DIR="$PROJECT_DIR/frontend-web"
+DATA_DIR="$PROJECT_DIR/data"
 VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
-VENV_STREAMLIT="$PROJECT_DIR/.venv/bin/streamlit"
 VENV_UVICORN="$PROJECT_DIR/.venv/bin/uvicorn"
+
+mkdir -p "$DATA_DIR"
 
 export PYTHONPATH="$PROJECT_DIR:$PYTHONPATH"
 export OLLAMA_HOST="127.0.0.1:11434"
@@ -18,35 +26,142 @@ export OLLAMA_NUM_PARALLEL=1
 export OLLAMA_KEEP_ALIVE="15m"
 export WORKBENCH_API_URL="http://127.0.0.1:8000"
 
+# Auto-detect local models folder in SIH repository if present
+if [ -z "$OLLAMA_MODELS" ]; then
+    if [ -d "$PROJECT_DIR/models/blobs" ]; then
+        export OLLAMA_MODELS="$PROJECT_DIR/models"
+    elif [ -d "$PROJECT_DIR/Models/blobs" ]; then
+        export OLLAMA_MODELS="$PROJECT_DIR/Models"
+    fi
+fi
+
+# ANSI Colors
+BOLD="\033[1m"
+GREEN="\033[32m"
+CYAN="\033[36m"
+YELLOW="\033[33m"
+RED="\033[31m"
+RESET="\033[0m"
+
+# Handle CLI actions (--stop, --restart, --status)
+ACTION="${1:-start}"
+
+stop_services() {
+    echo -e "${YELLOW}🛑 Stopping Air-Gapped Workbench Services...${RESET}"
+    pkill -f "node.*vite.*5173" || true
+    pkill -f "uvicorn orchestrator.main:app" || true
+    pkill -f "ollama serve" || true
+    sleep 2
+    echo -e "${GREEN}✓ All services stopped.${RESET}"
+}
+
+check_status() {
+    echo -e "\n${BOLD}${CYAN}=== Air-Gapped Workbench Service Status ===${RESET}"
+    
+    # 1. Ollama
+    if curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+        echo -e "  [1/3] Ollama Daemon (11434):       ${GREEN}ONLINE${RESET}"
+    else
+        echo -e "  [1/3] Ollama Daemon (11434):       ${RED}OFFLINE${RESET}"
+    fi
+
+    # 2. FastAPI Orchestrator
+    if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
+        echo -e "  [2/3] FastAPI Orchestrator (8000): ${GREEN}ONLINE${RESET}"
+    else
+        echo -e "  [2/3] FastAPI Orchestrator (8000): ${RED}OFFLINE${RESET}"
+    fi
+
+    # 3. Modern React Web UI
+    if curl -s http://127.0.0.1:5173 >/dev/null 2>&1; then
+        echo -e "  [3/3] Modern React Web UI (5173):  ${GREEN}ONLINE${RESET}"
+    else
+        echo -e "  [3/3] Modern React Web UI (5173):  ${RED}OFFLINE${RESET}"
+    fi
+    echo ""
+}
+
+if [ "$ACTION" == "--stop" ] || [ "$ACTION" == "stop" ]; then
+    stop_services
+    exit 0
+elif [ "$ACTION" == "--status" ] || [ "$ACTION" == "status" ]; then
+    check_status
+    exit 0
+elif [ "$ACTION" == "--restart" ] || [ "$ACTION" == "restart" ]; then
+    stop_services
+    echo ""
+fi
+
 echo "================================================================="
-echo "🛡️ Starting Air-Gapped Agentic AI Workbench..."
+echo "🛡️  Starting Air-Gapped Agentic AI Workbench..."
 echo "Target Hardware: NVIDIA RTX 3060 Laptop (6GB VRAM)"
 echo "Environment: Pure Air-Gapped (Zero Outbound Telemetry)"
 echo "================================================================="
 
 # 1. Start Ollama Server if not running
 if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-    echo "[1/3] Starting background Ollama daemon (6GB VRAM config)..."
-    /home/blue/SIH/run_ollama.sh > "$PROJECT_DIR/data/ollama_runtime.log" 2>&1 &
-    sleep 3
+    echo -e "[1/3] Starting background Ollama daemon (6GB VRAM config)..."
+    nohup setsid "$PROJECT_DIR/run_ollama.sh" > "$DATA_DIR/ollama_runtime.log" 2>&1 &
+    for i in {1..15}; do
+        if curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    echo -e "${GREEN}      ✓ Ollama daemon active on http://127.0.0.1:11434${RESET}"
 else
-    echo "[1/3] Ollama daemon is already active on 127.0.0.1:11434."
+    echo -e "[1/3] ${GREEN}✓ Ollama daemon is already active on http://127.0.0.1:11434${RESET}"
 fi
 
-# 2. Start FastAPI Orchestrator API
-echo "[2/3] Starting FastAPI Control-Plane Orchestrator on http://127.0.0.1:8000..."
-nohup $VENV_UVICORN orchestrator.main:app --host 127.0.0.1 --port 8000 > "$PROJECT_DIR/data/orchestrator.log" 2>&1 &
-sleep 2
+# 2. Start FastAPI Orchestrator API if not running
+if ! curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
+    echo -e "[2/3] Starting FastAPI Control-Plane Orchestrator on http://127.0.0.1:8000..."
+    nohup setsid "$VENV_UVICORN" orchestrator.main:app --host 127.0.0.1 --port 8000 > "$DATA_DIR/orchestrator.log" 2>&1 &
+    for i in {1..15}; do
+        if curl -s http://127.0.0.1:8000/health >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    echo -e "${GREEN}      ✓ FastAPI Orchestrator active on http://127.0.0.1:8000${RESET}"
+else
+    echo -e "[2/3] ${GREEN}✓ FastAPI Orchestrator is already active on http://127.0.0.1:8000${RESET}"
+fi
 
-# 3. Start Streamlit Interactive Frontend
-echo "[3/3] Starting Streamlit Interactive Workbench on http://127.0.0.1:8501..."
-nohup $VENV_STREAMLIT run frontend/app.py --server.port 8501 --server.headless true > "$PROJECT_DIR/data/frontend.log" 2>&1 &
-sleep 2
+# 3. Start Modern React Web Application (Vite Dev Server) if not running
+if ! curl -s http://127.0.0.1:5173 >/dev/null 2>&1; then
+    echo -e "[3/3] Starting Modern React Web UI (Vite) on http://127.0.0.1:5173..."
+    if command -v npm >/dev/null 2>&1; then
+        (cd "$FRONTEND_DIR" && nohup setsid npm run dev -- --host 127.0.0.1 --port 5173 > "$DATA_DIR/frontend_web.log" 2>&1 &)
+    else
+        (cd "$FRONTEND_DIR" && nohup setsid node ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 > "$DATA_DIR/frontend_web.log" 2>&1 &)
+    fi
+    for i in {1..15}; do
+        if curl -s http://127.0.0.1:5173 >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    echo -e "${GREEN}      ✓ Modern React Web UI active on http://127.0.0.1:5173${RESET}"
+else
+    echo -e "[3/3] ${GREEN}✓ Modern React Web UI is already active on http://127.0.0.1:5173${RESET}"
+fi
 
 echo "================================================================="
-echo "✅ Air-Gapped Workbench is LIVE!"
-echo "   - Web UI Dashboard:     http://127.0.0.1:8501"
-echo "   - Orchestrator REST API: http://127.0.0.1:8000"
-echo "   - API Docs (Swagger):   http://127.0.0.1:8000/docs"
-echo "   - Ollama Model Runtime: http://127.0.0.1:11434"
+echo -e "${BOLD}${GREEN}✅ Air-Gapped Workbench is LIVE & FULLY OPERATIONAL!${RESET}"
+echo "-----------------------------------------------------------------"
+echo -e "   ${BOLD}Web UI Dashboard:${RESET}     http://127.0.0.1:5173"
+echo -e "   ${BOLD}Orchestrator REST API:${RESET} http://127.0.0.1:8000"
+echo -e "   ${BOLD}API Docs (Swagger):${RESET}   http://127.0.0.1:8000/docs"
+echo -e "   ${BOLD}Ollama Model Runtime:${RESET} http://127.0.0.1:11434"
+echo "-----------------------------------------------------------------"
+echo -e "   ${BOLD}Vite Proxy Endpoints:${RESET}"
+echo -e "   • Models:          http://127.0.0.1:5173/api/v1/models"
+echo -e "   • Hardware Status: http://127.0.0.1:5173/api/v1/hardware-status"
+echo -e "   • Ollama Tags:     http://127.0.0.1:5173/ollama/api/tags"
+echo "-----------------------------------------------------------------"
+echo -e "   ${BOLD}Runtime Logs:${RESET}"
+echo -e "   • Ollama:       $DATA_DIR/ollama_runtime.log"
+echo -e "   • Orchestrator: $DATA_DIR/orchestrator.log"
+echo -e "   • Web UI:       $DATA_DIR/frontend_web.log"
 echo "================================================================="
