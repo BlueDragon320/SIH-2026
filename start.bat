@@ -10,11 +10,11 @@ start "Workbench FastAPI Backend" cmd /k "python -m uvicorn orchestrator.main:ap
 
 timeout /t 3 /nobreak >nul
 
-echo Launching Streamlit Frontend on http://127.0.0.1:8501 ...
-start "Workbench Streamlit Frontend" cmd /k "streamlit run frontend/app.py --server.port 8501 --server.address 127.0.0.1"
+echo Launching React Web UI on http://127.0.0.1:5173 ...
+start "Workbench React UI" cmd /k "cd frontend-web && npm run dev -- --host 127.0.0.1 --port 5173"
 
 echo.
 echo ================================================================================
 echo Workbench servers started successfully!
-echo Open your browser at: http://127.0.0.1:8501
+echo Open your browser at: http://127.0.0.1:5173
 echo ================================================================================

@@ -42,7 +42,9 @@ data/models/
 *.rar
 *.iso
 
-# Python & Virtual Environments
+# Python, Node & Virtual Environments
+node_modules/
+**/node_modules/
 .venv/
 venv/
 env/
