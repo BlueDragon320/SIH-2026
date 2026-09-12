@@ -17,6 +17,9 @@ import subprocess
 import webbrowser
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT_DIR / "frontend-web"
 DATA_DIR = ROOT_DIR / "data"
@@ -62,6 +65,11 @@ def main():
     if not is_endpoint_up("http://127.0.0.1:11434/api/tags"):
         print("[1/3] Starting background Ollama daemon (Port 11434)...")
         ollama_bin = shutil.which("ollama")
+        if not ollama_bin and os.name == "nt":
+            appdata_ollama = Path(os.environ.get("USERPROFILE", "")) / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe"
+            if appdata_ollama.exists():
+                ollama_bin = str(appdata_ollama)
+
         if ollama_bin:
             ollama_log = open(DATA_DIR / "ollama_runtime.log", "a")
             subprocess.Popen([ollama_bin, "serve"], env=env, stdout=ollama_log, stderr=ollama_log, start_new_session=True)
