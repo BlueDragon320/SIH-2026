@@ -1,37 +1,40 @@
 ================================================================================
- AIR-GAPPED AGENTIC AI WORKBENCH - STARTUP COMMANDS
+ AIR-GAPPED AGENTIC AI WORKBENCH - 1-CLICK EXECUTABLE LAUNCHERS
 ================================================================================
 
-PREREQUISITE 1: Ensure Ollama is running with qwen3.5:4b loaded.
+METHOD A: 1-CLICK EXECUTABLE LAUNCHERS (STARTS ALL SERVICES & REDIRECTS TO BROWSER)
 --------------------------------------------------------------------------------
-In Terminal 1 (or start Ollama background service):
+• On Linux / macOS (Terminal or Double-Click):
+    ./start.sh
+    # or native compiled binary:
+    ./workbench
+    # or universal python launcher:
+    ./start.py
+
+• On Windows (Command Prompt or Double-Click):
+    start.bat
+
+All launchers automatically:
+  1. Detect local models and start Ollama (Port 11434)
+  2. Launch FastAPI Orchestrator (Port 8000)
+  3. Launch Modern React Web UI on 0.0.0.0:5173
+  4. Automatically open and redirect your default browser to http://localhost:5173
+
+--------------------------------------------------------------------------------
+METHOD B: MANUAL STEP-BY-STEP STARTUP
+--------------------------------------------------------------------------------
+STEP 1: Start Ollama Runtime (Port 11434)
   ollama serve
 
-To verify installed models:
-  ollama list
-
-
-STEP 1: Start the FastAPI Backend Server (Port 8000)
---------------------------------------------------------------------------------
-Open Terminal / Command Prompt in the project root directory (c:\SIH\SIH-2026) and run:
-
+STEP 2: Start FastAPI Backend (Port 8000)
   python -m uvicorn orchestrator.main:app --host 127.0.0.1 --port 8000
 
-
-STEP 2: Start the Modern React Web Interface (Port 5173)
---------------------------------------------------------------------------------
-Open a NEW Terminal / Command Prompt in the project root directory and run:
-
+STEP 3: Start Modern React Web Interface (Port 5173)
   cd frontend-web
   npm run dev -- --host 0.0.0.0 --port 5173
 
-
-ACCESS THE WORKBENCH UI:
---------------------------------------------------------------------------------
-Open your web browser and navigate to:
-  http://localhost:5173
-  (From other devices on LAN: http://<YOUR_IP>:5173)
-
-Backend API Docs (Swagger):
-  http://127.0.0.1:8000/docs
+ACCESS URLS:
+  • Web UI:      http://localhost:5173 (or http://<LAN_IP>:5173 from other devices)
+  • Swagger API: http://127.0.0.1:8000/docs
 ================================================================================
+

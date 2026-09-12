@@ -11,11 +11,22 @@
 
 set -e
 
-PROJECT_DIR="/home/blue/SIH"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-$SCRIPT_DIR}"
 FRONTEND_DIR="$PROJECT_DIR/frontend-web"
 DATA_DIR="$PROJECT_DIR/data"
-VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
-VENV_UVICORN="$PROJECT_DIR/.venv/bin/uvicorn"
+
+# Auto-detect virtual environment python and uvicorn or fallback to system
+if [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
+    VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
+    VENV_UVICORN="$PROJECT_DIR/.venv/bin/uvicorn"
+elif [ -x "$PROJECT_DIR/venv/bin/python" ]; then
+    VENV_PYTHON="$PROJECT_DIR/venv/bin/python"
+    VENV_UVICORN="$PROJECT_DIR/venv/bin/uvicorn"
+else
+    VENV_PYTHON="python3"
+    VENV_UVICORN="uvicorn"
+fi
 
 mkdir -p "$DATA_DIR"
 
@@ -166,3 +177,15 @@ echo -e "   • Ollama:       $DATA_DIR/ollama_runtime.log"
 echo -e "   • Orchestrator: $DATA_DIR/orchestrator.log"
 echo -e "   • Web UI:       $DATA_DIR/frontend_web.log"
 echo "================================================================="
+
+# Automatically redirect / open default browser to Modern React Web UI
+if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+    echo -e "\n${BOLD}${CYAN}🚀 Redirecting to Web UI in your default browser (http://localhost:5173)...${RESET}"
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "http://localhost:5173" >/dev/null 2>&1 &
+    elif command -v sensible-browser >/dev/null 2>&1; then
+        sensible-browser "http://localhost:5173" >/dev/null 2>&1 &
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -m webbrowser "http://localhost:5173" >/dev/null 2>&1 &
+    fi
+fi
