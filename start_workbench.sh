@@ -51,6 +51,7 @@ stop_services() {
     pkill -f "node.*vite.*5173" || true
     pkill -f "uvicorn orchestrator.main:app" || true
     pkill -f "ollama serve" || true
+    pkill -f "streamlit" || true
     sleep 2
     echo -e "${GREEN}✓ All services stopped.${RESET}"
 }
@@ -130,11 +131,11 @@ fi
 
 # 3. Start Modern React Web Application (Vite Dev Server) if not running
 if ! curl -s http://127.0.0.1:5173 >/dev/null 2>&1; then
-    echo -e "[3/3] Starting Modern React Web UI (Vite) on http://127.0.0.1:5173..."
+    echo -e "[3/3] Starting Modern React Web UI (Vite) on port 5173..."
     if command -v npm >/dev/null 2>&1; then
-        (cd "$FRONTEND_DIR" && nohup setsid npm run dev -- --host 127.0.0.1 --port 5173 > "$DATA_DIR/frontend_web.log" 2>&1 &)
+        (cd "$FRONTEND_DIR" && nohup setsid npm run dev -- --host 0.0.0.0 --port 5173 > "$DATA_DIR/frontend_web.log" 2>&1 &)
     else
-        (cd "$FRONTEND_DIR" && nohup setsid node ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 > "$DATA_DIR/frontend_web.log" 2>&1 &)
+        (cd "$FRONTEND_DIR" && nohup setsid node ./node_modules/.bin/vite --host 0.0.0.0 --port 5173 > "$DATA_DIR/frontend_web.log" 2>&1 &)
     fi
     for i in {1..15}; do
         if curl -s http://127.0.0.1:5173 >/dev/null 2>&1; then
@@ -142,9 +143,9 @@ if ! curl -s http://127.0.0.1:5173 >/dev/null 2>&1; then
         fi
         sleep 1
     done
-    echo -e "${GREEN}      ✓ Modern React Web UI active on http://127.0.0.1:5173${RESET}"
+    echo -e "${GREEN}      ✓ Modern React Web UI active on port 5173 (0.0.0.0)${RESET}"
 else
-    echo -e "[3/3] ${GREEN}✓ Modern React Web UI is already active on http://127.0.0.1:5173${RESET}"
+    echo -e "[3/3] ${GREEN}✓ Modern React Web UI is already active on port 5173${RESET}"
 fi
 
 echo "================================================================="

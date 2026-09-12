@@ -28,8 +28,8 @@ services:
     container_name: workbench-orchestrator
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:8501:8501"
+      - "0.0.0.0:8000:8000"
+      - "0.0.0.0:5173:5173"
     environment:
       - OLLAMA_HOST=http://ollama:11434
     volumes:

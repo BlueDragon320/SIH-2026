@@ -18,17 +18,19 @@ Open Terminal / Command Prompt in the project root directory (c:\SIH\SIH-2026) a
   python -m uvicorn orchestrator.main:app --host 127.0.0.1 --port 8000
 
 
-STEP 2: Start the Streamlit Frontend Interface (Port 8501)
+STEP 2: Start the Modern React Web Interface (Port 5173)
 --------------------------------------------------------------------------------
-Open a NEW Terminal / Command Prompt in the project root directory (c:\SIH\SIH-2026) and run:
+Open a NEW Terminal / Command Prompt in the project root directory and run:
 
-  streamlit run frontend/app.py --server.port 8501 --server.address 127.0.0.1
+  cd frontend-web
+  npm run dev -- --host 0.0.0.0 --port 5173
 
 
 ACCESS THE WORKBENCH UI:
 --------------------------------------------------------------------------------
 Open your web browser and navigate to:
-  http://127.0.0.1:8501
+  http://localhost:5173
+  (From other devices on LAN: http://<YOUR_IP>:5173)
 
 Backend API Docs (Swagger):
   http://127.0.0.1:8000/docs
