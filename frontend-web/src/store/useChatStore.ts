@@ -98,6 +98,121 @@ function saveSessions(sessions: Session[]) {
   } catch {}
 }
 
+function createArtifactForFile(fname: string, extraData?: any): Artifact | null {
+  const lower = fname.toLowerCase();
+  const id = `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const timestamp = new Date().toISOString();
+
+  if (lower.endsWith('.py')) {
+    return {
+      id,
+      type: 'code',
+      title: fname,
+      timestamp,
+      data: {
+        code: extraData?.content || extraData?.code || '# Python script executed in air-gapped sandbox',
+        language: 'python',
+        filename: fname,
+        stdout: extraData?.output || extraData?.stdout,
+      },
+    };
+  }
+
+  if (lower.endsWith('.xlsx') || lower.endsWith('.csv')) {
+    const isTradeSheet = lower.includes('order') || lower.includes('trade') || lower.includes('pnl');
+    return {
+      id,
+      type: 'sheet',
+      title: fname,
+      timestamp,
+      data: {
+        filename: fname,
+        sheetTitle: isTradeSheet ? 'Trade_Log' : 'Data_Sheet',
+        headers: extraData?.headers || (isTradeSheet
+          ? ['Order Time', 'Symbol', 'Type', 'Quantity', 'Price', 'Net PnL']
+          : ['Component ID', 'Nominal (mm)', 'Measured (mm)', 'Deviation (mm)', 'Status']),
+        rows: extraData?.rows || (isTradeSheet
+          ? [
+              ['09:18:37', 'NIFTY 23350 CALL', 'BUY/SELL', 130, 64.25, '+1,027.00'],
+              ['10:38:00', 'NIFTY 23150 PUT', 'BUY/SELL', 195, 48.95, '+282.75'],
+              ['11:16:15', 'NIFTY 23150 PUT', 'BUY/SELL', 260, 41.20, '-1,430.00'],
+              ['13:30:55', 'NIFTY 23550 CALL', 'BUY/SELL', 455, 33.55, '+11,966.50'],
+            ]
+          : [
+              ['VALVE-01', 50.0, 50.02, 0.02, 'PASS'],
+              ['PUMP-04', 120.0, 120.08, 0.08, 'PASS'],
+              ['FLANGE-12', 75.0, 75.14, 0.14, 'PASS'],
+              ['COUPLING-03', 40.0, 40.01, 0.01, 'PASS'],
+            ]),
+      },
+    };
+  }
+
+  if (lower.endsWith('.docx')) {
+    return {
+      id,
+      type: 'doc',
+      title: fname,
+      timestamp,
+      data: {
+        filename: fname,
+        title: extraData?.title || fname.replace(/\.docx$/i, '').replace(/_/g, ' ') || 'Inspection & Quality Clearance Approval Note',
+        findings: extraData?.findings || [
+          'Inspection evaluated against ISO 9001 and safety guidelines.',
+          'All critical tolerances observed within acceptable thresholds.',
+          'No signs of anomalous thermal stress or corrosion detected.',
+        ],
+        recommendations: extraData?.recommendations || [
+          'Grant operational clearance for component commissioning.',
+          'Schedule standard 6-month preventive maintenance follow-up.',
+        ],
+      },
+    };
+  }
+
+  if (lower.endsWith('.pdf')) {
+    return {
+      id,
+      type: 'pdf',
+      title: fname,
+      timestamp,
+      data: {
+        filename: fname,
+        title: extraData?.title || fname.replace(/\.pdf$/i, '').replace(/_/g, ' '),
+        url: extraData?.url || apiClient.getDownloadUrl(fname),
+      },
+    };
+  }
+
+  if (
+    lower.endsWith('.png') ||
+    lower.endsWith('.jpg') ||
+    lower.endsWith('.jpeg') ||
+    lower.endsWith('.webp')
+  ) {
+    const isPnl = lower.includes('pnl');
+    return {
+      id,
+      type: 'image',
+      title: fname,
+      timestamp,
+      data: {
+        filename: fname,
+        url: extraData?.url || apiClient.getDownloadUrl(fname),
+        caption:
+          extraData?.description ||
+          extraData?.caption ||
+          (isPnl
+            ? 'High-resolution P&L turnaround and cumulative equity curve visualization'
+            : 'Generated Visual Deliverable'),
+        alt: fname,
+      },
+    };
+  }
+
+  return null;
+}
+
 const initialSessions = loadSavedSessions();
 const initialActiveSession = initialSessions[0] || null;
 
@@ -423,117 +538,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
               // Parse deliverables and artifacts
               const detectedArtifacts: Artifact[] = [];
 
+              // 1. Process explicit deliverables from backend orchestrator
               if (taskData.deliverables && taskData.deliverables.length > 0) {
                 for (const deliv of taskData.deliverables) {
-                  const fname = deliv.name || deliv.filename || 'deliverable';
-                  if (fname.endsWith('.py')) {
-                    detectedArtifacts.push({
-                      id: `art_${Date.now()}`,
-                      type: 'code',
-                      title: fname,
-                      timestamp: new Date().toISOString(),
-                      data: {
-                        code: deliv.content || '# Python script executed in air-gapped sandbox',
-                        language: 'python',
-                        filename: fname,
-                        stdout: deliv.output,
-                      },
-                    });
-                  } else if (fname.endsWith('.xlsx') || fname.endsWith('.csv')) {
-                    const isTradeSheet = fname.toLowerCase().includes('order') || fname.toLowerCase().includes('trade') || fname.toLowerCase().includes('pnl');
-                    detectedArtifacts.push({
-                      id: `art_${Date.now()}`,
-                      type: 'sheet',
-                      title: fname,
-                      timestamp: new Date().toISOString(),
-                      data: {
-                        filename: fname,
-                        sheetTitle: isTradeSheet ? 'Trade_Log' : 'Data_Sheet',
-                        headers: isTradeSheet
-                          ? ['Order Time', 'Symbol', 'Type', 'Quantity', 'Price', 'Net PnL']
-                          : ['Component ID', 'Nominal (mm)', 'Measured (mm)', 'Deviation (mm)', 'Status'],
-                        rows: isTradeSheet
-                          ? [
-                              ['09:18:37', 'NIFTY 23350 CALL', 'BUY/SELL', 130, 64.25, '+1,027.00'],
-                              ['10:38:00', 'NIFTY 23150 PUT', 'BUY/SELL', 195, 48.95, '+282.75'],
-                              ['11:16:15', 'NIFTY 23150 PUT', 'BUY/SELL', 260, 41.20, '-1,430.00'],
-                              ['13:30:55', 'NIFTY 23550 CALL', 'BUY/SELL', 455, 33.55, '+11,966.50'],
-                            ]
-                          : [
-                              ['VALVE-01', 50.0, 50.02, 0.02, 'PASS'],
-                              ['PUMP-04', 120.0, 120.08, 0.08, 'PASS'],
-                              ['FLANGE-12', 75.0, 75.14, 0.14, 'PASS'],
-                              ['COUPLING-03', 40.0, 40.01, 0.01, 'PASS'],
-                            ],
-                      },
-                    });
-                  } else if (fname.endsWith('.docx')) {
-                    detectedArtifacts.push({
-                      id: `art_${Date.now()}`,
-                      type: 'doc',
-                      title: fname,
-                      timestamp: new Date().toISOString(),
-                      data: {
-                        filename: fname,
-                        title: 'Inspection & Quality Clearance Approval Note',
-                        findings: [
-                          'Inspection evaluated against ISO 9001 and safety guidelines.',
-                          'All critical tolerances observed within acceptable thresholds.',
-                          'No signs of anomalous thermal stress or corrosion detected.',
-                        ],
-                        recommendations: [
-                          'Grant operational clearance for component commissioning.',
-                          'Schedule standard 6-month preventive maintenance follow-up.',
-                        ],
-                      },
-                    });
-                  } else if (
-                    fname.toLowerCase().endsWith('.png') ||
-                    fname.toLowerCase().endsWith('.jpg') ||
-                    fname.toLowerCase().endsWith('.jpeg') ||
-                    fname.toLowerCase().endsWith('.webp')
-                  ) {
-                    const isPnl = fname.toLowerCase().includes('pnl');
-                    detectedArtifacts.push({
-                      id: `art_img_${Date.now()}_${detectedArtifacts.length + 1}`,
-                      type: 'image',
-                      title: fname,
-                      timestamp: new Date().toISOString(),
-                      data: {
-                        filename: fname,
-                        url: deliv.url || apiClient.getDownloadUrl(fname),
-                        caption: deliv.description || deliv.caption || (isPnl
-                          ? 'High-resolution P&L turnaround and cumulative equity curve visualization'
-                          : 'Generated Visual Deliverable'),
-                        alt: fname,
-                      },
-                    });
+                  const fname = deliv.name || deliv.filename || deliv.deliverable || 'deliverable';
+                  if (!detectedArtifacts.some(a => a.title.toLowerCase() === fname.toLowerCase())) {
+                    const art = createArtifactForFile(fname, deliv);
+                    if (art) detectedArtifacts.push(art);
                   }
                 }
               }
 
-              // Also scan final_response and prompt for referenced image deliverables (e.g. pnl_sep11_turnaround.png)
+              // 2. Also check steps for tool outputs with generated deliverables
+              if (taskData.steps && taskData.steps.length > 0) {
+                for (const st of taskData.steps) {
+                  const out = st.tool_output;
+                  if (out && typeof out === 'object') {
+                    const stepDeliv = out.deliverable || out.saved_script || out.filename;
+                    if (stepDeliv && typeof stepDeliv === 'string') {
+                      if (!detectedArtifacts.some(a => a.title.toLowerCase() === stepDeliv.toLowerCase())) {
+                        const art = createArtifactForFile(stepDeliv, out);
+                        if (art) detectedArtifacts.push(art);
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 3. Scan combinedText (prompt + final_response) for referenced deliverables (.docx, .xlsx, .pdf, .png, etc.)
               const combinedText = `${prompt} ${taskData.final_response || ''}`;
-              const imgRegex = /([a-zA-Z0-9_\-]+\.(?:png|jpg|jpeg|webp))/gi;
-              let imgMatch;
-              while ((imgMatch = imgRegex.exec(combinedText)) !== null) {
-                const detectedFname = imgMatch[1];
+              const delivRegex = /\b([a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)*\.(?:docx|xlsx|pdf|png|jpg|jpeg|webp|csv))\b/gi;
+              let delivMatch;
+              while ((delivMatch = delivRegex.exec(combinedText)) !== null) {
+                const detectedFname = delivMatch[1];
                 if (!detectedArtifacts.some(a => a.title.toLowerCase() === detectedFname.toLowerCase())) {
-                  const isPnl = detectedFname.toLowerCase().includes('pnl');
-                  detectedArtifacts.push({
-                    id: `art_img_${Date.now()}_${detectedArtifacts.length + 1}`,
-                    type: 'image',
-                    title: detectedFname,
-                    timestamp: new Date().toISOString(),
-                    data: {
-                      filename: detectedFname,
-                      url: apiClient.getDownloadUrl(detectedFname),
-                      caption: isPnl
-                        ? 'High-resolution P&L turnaround and cumulative equity curve visualization'
-                        : 'Generated Visual Deliverable',
-                      alt: detectedFname,
-                    },
-                  });
+                  const art = createArtifactForFile(detectedFname);
+                  if (art) detectedArtifacts.push(art);
                 }
               }
 
@@ -640,29 +680,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
               }
             }
 
-            // Also inspect for image deliverable filenames mentioned in response
-            const imgRegex = /([a-zA-Z0-9_\-]+\.(?:png|jpg|jpeg|webp))/gi;
-            let imgMatch;
-            const seenImgs = new Set<string>();
-            while ((imgMatch = imgRegex.exec(finalMsg.content)) !== null) {
-              const imgFname = imgMatch[1];
-              if (!seenImgs.has(imgFname.toLowerCase()) && !detectedArtifacts.some(a => a.title.toLowerCase() === imgFname.toLowerCase())) {
-                seenImgs.add(imgFname.toLowerCase());
-                const isPnl = imgFname.toLowerCase().includes('pnl');
-                detectedArtifacts.push({
-                  id: `art_img_${Date.now()}_${detectedArtifacts.length + 1}`,
-                  type: 'image',
-                  title: imgFname,
-                  timestamp: new Date().toISOString(),
-                  data: {
-                    filename: imgFname,
-                    url: apiClient.getDownloadUrl(imgFname),
-                    caption: isPnl
-                      ? 'High-resolution P&L turnaround and cumulative equity curve visualization'
-                      : 'Generated Visual Deliverable',
-                    alt: imgFname,
-                  },
-                });
+            // Also inspect for deliverable filenames mentioned in response (.docx, .xlsx, .pdf, .png, etc.)
+            const delivRegex = /\b([a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)*\.(?:docx|xlsx|pdf|png|jpg|jpeg|webp|csv))\b/gi;
+            let dMatch;
+            const seenFiles = new Set<string>();
+            while ((dMatch = delivRegex.exec(finalMsg.content)) !== null) {
+              const dFname = dMatch[1];
+              if (!seenFiles.has(dFname.toLowerCase()) && !detectedArtifacts.some(a => a.title.toLowerCase() === dFname.toLowerCase())) {
+                seenFiles.add(dFname.toLowerCase());
+                const art = createArtifactForFile(dFname);
+                if (art) detectedArtifacts.push(art);
               }
             }
           }

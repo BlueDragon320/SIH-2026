@@ -19,6 +19,7 @@ import {
   ExternalLink,
   ArrowDown,
   Image as ImageIcon,
+  Download,
 } from 'lucide-react';
 import { Message, Artifact } from '../../types';
 import { useChatStore } from '../../store/useChatStore';
@@ -367,6 +368,21 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 </div>
               );
             },
+            a({ href, children, ...props }: any) {
+              const isDownload = href?.includes('/workspace/download/') || href?.match(/\.(pdf|docx|xlsx|csv|png|jpg|jpeg|webp)$/i);
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-crimson-400 hover:text-crimson-300 underline underline-offset-2 transition-colors"
+                  {...props}
+                >
+                  {children}
+                  {isDownload && <Download className="w-3 h-3 ml-0.5 inline opacity-80" />}
+                </a>
+              );
+            },
           }}
         >
           {message.content}
@@ -386,6 +402,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               {art.type === 'code' && <FileCode className="w-3.5 h-3.5 text-crimson-500" />}
               {art.type === 'sheet' && <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />}
               {art.type === 'doc' && <FileText className="w-3.5 h-3.5 text-amber-400" />}
+              {art.type === 'pdf' && <FileText className="w-3.5 h-3.5 text-rose-400" />}
               {art.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-sky-400" />}
               <span className="font-medium font-mono text-[11px]">{art.title}</span>
               <ExternalLink className="w-3 h-3 text-text-muted group-hover:text-crimson-400 transition-colors" />

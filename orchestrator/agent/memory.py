@@ -34,6 +34,7 @@ class TaskState(BaseModel):
     steps: List[StepRecord] = []
     deliverables: List[Dict[str, Any]] = []
     messages: List[Dict[str, Any]] = []
+    attachments: List[str] = []
     final_response: Optional[str] = ""
     created_at: str
     updated_at: str
@@ -122,6 +123,12 @@ class TaskMemoryStore:
                     "task_type": row["task_type"]
                 })
 
+        att_list = []
+        for m in raw_msgs:
+            if m.get("role") == "user" and m.get("attachments"):
+                att_list = m.get("attachments", [])
+                break
+
         return TaskState(
             task_id=row["task_id"],
             prompt=row["prompt"],
@@ -135,6 +142,7 @@ class TaskMemoryStore:
             steps=[StepRecord(**s) for s in json.loads(row["steps_json"] or "[]")],
             deliverables=json.loads(row["deliverables_json"] or "[]"),
             messages=raw_msgs,
+            attachments=att_list,
             final_response=row["final_response"],
             created_at=row["created_at"],
             updated_at=row["updated_at"]

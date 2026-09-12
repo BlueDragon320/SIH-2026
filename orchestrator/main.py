@@ -157,7 +157,8 @@ async def submit_task(req: TaskSubmitRequest, background_tasks: BackgroundTasks)
             prompt=req.prompt,
             ollama_tag=routing.ollama_tag,
             task_type=routing.task_type,
-            attachments=req.attachments
+            attachments=req.attachments,
+            model_assigned=f"{routing.selected_model} / {routing.ollama_tag}"
         )
 
     background_tasks.add_task(_run_agent)

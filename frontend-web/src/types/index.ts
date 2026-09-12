@@ -31,8 +31,16 @@ export interface DocArtifact {
   filename: string;
   title: string;
   background?: string;
-  findings: string[];
-  recommendations: string[];
+  findings?: string[];
+  recommendations?: string[];
+  url?: string;
+}
+
+export interface PdfArtifact {
+  filename: string;
+  title?: string;
+  url?: string;
+  totalPages?: number;
 }
 
 export interface ImageArtifact {
@@ -57,14 +65,14 @@ export interface RAGArtifact {
   results: RAGChunk[];
 }
 
-export type ArtifactType = 'code' | 'sheet' | 'doc' | 'rag' | 'image';
+export type ArtifactType = 'code' | 'sheet' | 'doc' | 'rag' | 'image' | 'pdf';
 
 export interface Artifact {
   id: string;
   type: ArtifactType;
   title: string;
   timestamp: string;
-  data: CodeArtifact | SheetArtifact | DocArtifact | RAGArtifact | ImageArtifact;
+  data: CodeArtifact | SheetArtifact | DocArtifact | RAGArtifact | ImageArtifact | PdfArtifact;
 }
 
 export interface StepRecord {
