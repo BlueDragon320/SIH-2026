@@ -32,9 +32,16 @@ class AuditLogger:
                 input_payload TEXT,
                 output_payload TEXT,
                 duration_ms REAL,
-                airgap_verified INTEGER DEFAULT 1
+                airgap_verified INTEGER DEFAULT 1,
+                user_id TEXT
             )
         """)
+        
+        # Migration for user_id
+        try:
+            cur.execute("ALTER TABLE audit_events ADD COLUMN user_id TEXT")
+        except Exception:
+            pass
         conn.commit()
         conn.close()
 
@@ -46,7 +53,8 @@ class AuditLogger:
         tool_name: Optional[str] = None,
         input_data: Any = None,
         output_data: Any = None,
-        duration_ms: float = 0.0
+        duration_ms: float = 0.0,
+        user_id: Optional[str] = None
     ):
         now_iso = datetime.datetime.now().isoformat()
         inp_str = json.dumps(input_data) if input_data is not None else ""
@@ -58,9 +66,9 @@ class AuditLogger:
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO audit_events 
-                (timestamp, task_id, event_type, model_used, tool_name, input_payload, output_payload, duration_ms, airgap_verified)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-            """, (now_iso, task_id, event_type, model_used, tool_name, inp_str, out_str, duration_ms))
+                (timestamp, task_id, event_type, model_used, tool_name, input_payload, output_payload, duration_ms, airgap_verified, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+            """, (now_iso, task_id, event_type, model_used, tool_name, inp_str, out_str, duration_ms, user_id))
             conn.commit()
             conn.close()
         except Exception as e:
@@ -91,5 +99,17 @@ class AuditLogger:
         cur = conn.cursor()
         cur.execute("SELECT * FROM audit_events ORDER BY id DESC LIMIT ?", (limit,))
         rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+
+    def get_user_activity(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT * FROM audit_events WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
+            rows = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            rows = []
         conn.close()
         return rows

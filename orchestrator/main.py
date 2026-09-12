@@ -8,7 +8,13 @@ import datetime
 import asyncio
 import threading
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks, Request, Depends
+
+from orchestrator.auth.database import AuthDatabase
+from orchestrator.auth.security import create_access_token, create_refresh_token, decode_token, verify_password, hash_password
+from orchestrator.auth.models import (LoginRequest, LoginResponse, UserPublic, UserCreate, UserUpdate, ChangePasswordRequest)
+from orchestrator.auth.middleware import AuthMiddleware
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -35,6 +41,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+auth_db = AuthDatabase()
+
+app.add_middleware(AuthMiddleware, auth_db=auth_db)
+
+def get_current_user(request: Request) -> dict:
+    user = getattr(request.state, 'user', None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+def require_admin(request: Request) -> dict:
+    user = get_current_user(request)
+    if user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
 
 # Core singletons
 registry = ModelRegistry()
@@ -111,6 +134,235 @@ class ToolInvokeRequest(BaseModel):
 # API Endpoints
 # -------------------------------------------------------------
 
+
+@app.post("/v1/auth/login", response_model=LoginResponse)
+async def login(request: Request):
+    content_type = request.headers.get("content-type", "")
+    username = ""
+    password = ""
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        username = str(form.get("username") or "")
+        password = str(form.get("password") or "")
+    else:
+        try:
+            body = await request.json()
+            username = str(body.get("username") or "")
+            password = str(body.get("password") or "")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid request body")
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+
+    user = auth_db.get_user_by_username(username)
+    if not user or not verify_password(password, user['hashed_password']):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    auth_db.update_user(user['id'], last_login=datetime.datetime.now(datetime.timezone.utc).isoformat())
+    
+    access_token = create_access_token(user['id'], user['username'], user['role'])
+    refresh_token = create_refresh_token(user['id'], user['username'], user['role'])
+    
+    payload = decode_token(access_token)
+    
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    auth_db.create_session(user['id'], payload['jti'], client_ip, user_agent)
+
+    user_data = dict(user)
+    user_data['is_active'] = bool(user_data.get('is_active', 1))
+    user_data['must_change_password'] = bool(user_data.get('must_change_password', 0))
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": user_data
+    }
+
+@app.post("/v1/auth/refresh")
+async def refresh_token(request: Request):
+    token = None
+    # Try JSON body first (frontend sends { refresh_token: "..." })
+    try:
+        body = await request.json()
+        token = body.get("refresh_token")
+    except Exception:
+        pass
+    # Fallback to Authorization header
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+    try:
+        payload = decode_token(token)
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        
+        user = auth_db.get_user_by_id(payload.get("sub"))
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+            
+        access_token = create_access_token(user['id'], user['username'], user['role'])
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@app.post("/v1/auth/logout")
+def logout(request: Request):
+    user = get_current_user(request)
+    jti = user.get('jti')
+    if jti:
+        auth_db.invalidate_sessions_by_jti(jti)
+    return {"status": "success", "detail": "Logged out"}
+
+@app.get("/v1/auth/me", response_model=UserPublic)
+def get_me(request: Request):
+    user_info = get_current_user(request)
+    user = auth_db.get_user_by_id(user_info['user_id'])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_data = dict(user)
+    user_data['is_active'] = bool(user_data.get('is_active', 1))
+    user_data['must_change_password'] = bool(user_data.get('must_change_password', 0))
+    return user_data
+
+@app.put("/v1/auth/change-password")
+@app.post("/v1/auth/change-password")
+def change_password(req: ChangePasswordRequest, request: Request):
+    user_info = get_current_user(request)
+    user = auth_db.get_user_by_id(user_info['user_id'])
+    if not verify_password(req.current_password, user['hashed_password']):
+        raise HTTPException(status_code=400, detail="Invalid current password")
+    
+    auth_db.update_user(user['id'], password=req.new_password, must_change_password=0)
+    return {"status": "success", "detail": "Password changed successfully"}
+
+@app.get("/v1/admin/dashboard")
+def admin_dashboard(request: Request):
+    require_admin(request)
+    # Get total tasks across all users - TaskMemoryStore doesn't expose raw db path via db_path property easily or we can just pass the path
+    return auth_db.get_dashboard_stats(memory_store.db_path)
+
+@app.get("/v1/admin/users", response_model=List[UserPublic])
+def get_all_users(request: Request):
+    require_admin(request)
+    users = auth_db.list_users()
+    for u in users:
+        u['is_active'] = bool(u.get('is_active', 1))
+        u['must_change_password'] = bool(u.get('must_change_password', 0))
+    return users
+
+@app.post("/v1/admin/users")
+def create_user(req: UserCreate, request: Request):
+    require_admin(request)
+    user = auth_db.create_user(req.username, req.password, req.role, req.email)
+    if not user:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    return user
+
+@app.get("/v1/admin/users/{user_id}")
+def get_user(user_id: str, request: Request):
+    require_admin(request)
+    user = auth_db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@app.put("/v1/admin/users/{user_id}")
+def update_user(user_id: str, req: UserUpdate, request: Request):
+    require_admin(request)
+    success = auth_db.update_user(user_id, **req.dict(exclude_unset=True))
+    if not success:
+        raise HTTPException(status_code=400, detail="Update failed")
+    return {"detail": "User updated"}
+
+@app.delete("/v1/admin/users/{user_id}")
+def delete_user(user_id: str, request: Request):
+    require_admin(request)
+    auth_db.delete_user(user_id)
+    return {"detail": "User deactivated"}
+
+@app.get("/v1/admin/sessions")
+def list_sessions(request: Request):
+    require_admin(request)
+    return auth_db.get_active_sessions()
+
+@app.delete("/v1/admin/sessions/{session_id}")
+def delete_session(session_id: str, request: Request):
+    require_admin(request)
+    auth_db.force_end_session(session_id)
+    return {"detail": "Session terminated"}
+
+@app.get("/v1/admin/login-history")
+def get_login_history(request: Request, user_id: str = None, limit: int = 50):
+    require_admin(request)
+    return auth_db.get_login_history(limit, user_id)
+
+@app.get("/v1/admin/usage-stats")
+def get_usage_stats(request: Request):
+    require_admin(request)
+    stats = memory_store.get_task_stats_by_user()
+    return stats
+
+@app.get("/v1/admin/user-chats")
+def get_all_user_chats(request: Request):
+    require_admin(request)
+    return auth_db.get_all_chats_for_admin()
+
+@app.get("/v1/admin/user-chats/{user_id}")
+def get_user_chats(user_id: str, request: Request):
+    require_admin(request)
+    if user_id.lower() in ["all", "", "null", "undefined"]:
+        return auth_db.get_all_chats_for_admin()
+    return auth_db.get_user_chats(user_id)
+
+@app.get("/v1/admin/system-health")
+def system_health_admin(request: Request):
+    require_admin(request)
+    return get_hardware_status()
+
+@app.get("/v1/admin/dashboard-stats")
+def admin_dashboard_alias(request: Request):
+    return admin_dashboard(request)
+
+class ChatSyncRequest(BaseModel):
+    session_id: str
+    session_name: str
+    messages_json: str
+
+@app.post("/v1/user/chats")
+def sync_user_chat(req: ChatSyncRequest, request: Request):
+    user = get_current_user(request)
+    auth_db.save_user_chat(
+        user_id=user['user_id'],
+        session_id=req.session_id,
+        session_name=req.session_name,
+        messages_json=req.messages_json,
+        username=user.get('username')
+    )
+    return {"status": "success"}
+
+@app.get("/v1/user/chats")
+def list_current_user_chats(request: Request):
+    user = get_current_user(request)
+    return auth_db.get_user_chats(user['user_id'])
+
+@app.delete("/v1/user/chats/{session_id}")
+def delete_current_user_chat(session_id: str, request: Request):
+    user = get_current_user(request)
+    auth_db.delete_user_chat(session_id, user['user_id'])
+    return {"status": "success", "detail": "Chat deleted"}
+
+@app.delete("/v1/admin/user-chats/{session_id}")
+def admin_delete_user_chat(session_id: str, request: Request):
+    require_admin(request)
+    auth_db.delete_user_chat(session_id)
+    return {"status": "success", "detail": "Chat deleted by admin"}
+
 @app.get("/health")
 def health_check():
     return {
@@ -120,7 +372,7 @@ def health_check():
     }
 
 @app.post("/v1/task", response_model=TaskSubmitResponse)
-async def submit_task(req: TaskSubmitRequest, background_tasks: BackgroundTasks):
+async def submit_task(req: TaskSubmitRequest, request: Request, background_tasks: BackgroundTasks):
     """
     Kicks off an agent task:
     1. Classifies task & auto-selects appropriate local model from registry
@@ -128,6 +380,8 @@ async def submit_task(req: TaskSubmitRequest, background_tasks: BackgroundTasks)
     3. Runs agent loop
     """
     task_id = req.task_id or f"task_{uuid.uuid4().hex[:10]}"
+    user = getattr(request.state, 'user', None)
+    user_id = user.get('user_id') if user else None
     
     # 1. Route task
     att_types = []
@@ -147,7 +401,8 @@ async def submit_task(req: TaskSubmitRequest, background_tasks: BackgroundTasks)
         event_type="ROUTING_DECISION",
         model_used=routing.ollama_tag,
         input_data={"prompt": req.prompt, "attachments": req.attachments},
-        output_data=routing.model_dump()
+        output_data=routing.model_dump(),
+        user_id=user_id
     )
 
     # 3. Execute agent loop asynchronously in background
@@ -158,7 +413,8 @@ async def submit_task(req: TaskSubmitRequest, background_tasks: BackgroundTasks)
             ollama_tag=routing.ollama_tag,
             task_type=routing.task_type,
             attachments=req.attachments,
-            model_assigned=f"{routing.selected_model} / {routing.ollama_tag}"
+            model_assigned=f"{routing.selected_model} / {routing.ollama_tag}",
+            user_id=user_id
         )
 
     background_tasks.add_task(_run_agent)

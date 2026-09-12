@@ -1,0 +1,19 @@
+{
+  "session_id": "session_u1_ingest_01",
+  "session_name": "Analysis of Defense Ingestion Pipeline",
+  "user_id": "5c0ca863-924e-4b5b-96cc-17a92e944964",
+  "username": "user1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Can you summarize our air-gap compliance specs?"
+    },
+    {
+      "role": "assistant",
+      "content": "Air-gap compliance is verified with 0 bytes outbound egress and local Ollama inference.",
+      "model": "llama3.1:8b"
+    }
+  ],
+  "created_at": "2026-09-12T09:30:48.241527+00:00",
+  "updated_at": "2026-09-12T09:30:48.241527+00:00"
+}

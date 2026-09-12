@@ -1,3 +1,6 @@
+import { useAuth } from '../../contexts/AuthContext';
+import { Link } from 'react-router-dom';
+import { User, LogOut, Shield } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import {
   Plus,
@@ -28,6 +31,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelManager }) => {
+  const { user, isAdmin, logout } = useAuth();
   const {
     sessions,
     activeSessionId,
@@ -317,6 +321,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelM
 
       {/* 4. Footer: Hardware Telemetry Bar */}
       <div className="p-3 border-t border-border/80 bg-background/90 shrink-0 space-y-2.5">
+
+        {/* User Profile Section */}
+        <div className="bg-surface/80 border border-border/80 rounded-lg p-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-crimson-600/20 text-crimson-500 flex items-center justify-center shrink-0">
+              <User className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] font-medium text-text-primary truncate">{user?.username || 'User'}</div>
+              <div className="text-[9px] text-text-muted flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-crimson-500' : 'bg-emerald-500'}`}></span>
+                {isAdmin ? 'Master Head of Department' : 'Department Operator'}
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex gap-1.5 pt-1">
+            {isAdmin && (
+              <Link 
+                to="/admin" 
+                className="flex-1 flex items-center justify-center gap-1 py-1 px-2 bg-surface hover:bg-surface-hover border border-border rounded text-[10px] text-text-primary transition-colors"
+              >
+                <Shield className="w-3 h-3 text-crimson-500" />
+                Admin
+              </Link>
+            )}
+            <button 
+              onClick={logout}
+              className="flex-1 flex items-center justify-center gap-1 py-1 px-2 bg-surface hover:bg-surface-hover border border-border rounded text-[10px] text-rose-400 hover:text-rose-300 transition-colors"
+            >
+              <LogOut className="w-3 h-3" />
+              Logout
+            </button>
+          </div>
+        </div>
+
         {/* GPU & VRAM telemetry */}
         <div className="bg-surface/80 border border-border/80 rounded-lg p-2.5 text-[11px] space-y-1.5">
           <div className="flex items-center justify-between">

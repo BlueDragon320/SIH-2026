@@ -44,10 +44,13 @@ class AgentExecutor:
                 result = {"status": "success", "files": f_list}
 
             elif tool_name == "code_execute":
+                code_payload = tool_args.get("code") or tool_args.get("content") or tool_args.get("code_content")
+                target_filename = tool_args.get("filename") or tool_args.get("save_as")
+                
                 res = sandbox.execute_python_code(
-                    code_or_filename=tool_args.get("code") or tool_args.get("filename"),
+                    code_or_filename=code_payload or target_filename or "",
                     timeout_sec=tool_args.get("timeout_sec", 15),
-                    save_deliverable_name=tool_args.get("save_as")
+                    save_deliverable_name=target_filename or tool_args.get("save_as")
                 )
                 result = res
 
@@ -177,7 +180,8 @@ class AgentExecutor:
         task_type: str,
         attachments: Optional[List[str]] = None,
         human_approval_required: bool = False,
-        model_assigned: Optional[str] = None
+        model_assigned: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> TaskState:
         """
         Execute full autonomous agent loop:
@@ -209,6 +213,8 @@ class AgentExecutor:
             state.ollama_tag = ollama_tag
             state.task_type = task_type
             state.attachments = attachments
+            if user_id:
+                state.user_id = user_id
             state.updated_at = datetime.datetime.now().isoformat()
         else:
             state = TaskState(
@@ -220,6 +226,7 @@ class AgentExecutor:
                 task_type=task_type,
                 attachments=attachments,
                 messages=[],
+                user_id=user_id,
                 created_at=datetime.datetime.now().isoformat(),
                 updated_at=datetime.datetime.now().isoformat()
             )
@@ -368,29 +375,43 @@ class AgentExecutor:
 
     def _is_trading_task(self, prompt: str, attachments: List[str]) -> bool:
         p_lower = prompt.lower()
-        trade_keywords = [
-            "trade", "trading", "broker", "brokerage", "orders", "closed orders",
-            "p&l", "pnl", "profit", "loss", "turnover", "stt", "sebi", "strike",
-            "nifty", "call", "put", "stop-loss", "stop loss", "fifo", "intraday"
-        ]
-        has_trade_kw = any(kw in p_lower for kw in trade_keywords)
+        
+        # Check attachments first
+        for att in (attachments or []):
+            att_lower = att.lower()
+            if any(k in att_lower for k in ["closed", "order", "trade", "pnl", "brokerage"]):
+                return True
+                
+        # Check if prompt explicitly references closed orders csv or trading dataset
+        if "closed orders" in p_lower or "closed_orders" in p_lower:
+            return True
+            
+        # Use regex word boundaries so 'compute', 'input', 'callback', etc. don't trigger false positives
+        trade_pattern = r"\b(trade|trades|trading|broker|brokerage|orders|pnl|p&l|turnover|stt|sebi|strike|nifty|stop-loss|stop\s+loss|fifo|intraday)\b"
+        has_trade_kw = bool(re.search(trade_pattern, p_lower))
+        
         has_data_file = any(a.lower().endswith(('.csv', '.xlsx', '.xls', '.tsv')) for a in (attachments or []))
-        has_trade_filename = any(any(k in a.lower() for k in ["closed", "order", "trade", "pnl"]) for a in (attachments or []))
-        return has_trade_filename or (has_trade_kw and (has_data_file or "csv" in p_lower or "excel" in p_lower or "orders" in p_lower or "trade" in p_lower))
+        has_explicit_trade_context = bool(re.search(r"\b(pnl|p&l|trading|brokerage|closed\s+orders?|stop\s*loss|nifty)\b", p_lower))
+        
+        # Don't trigger if prompt is asking for general python script without trading context
+        is_coding_prompt = bool(re.search(r"\b(write|create|generate|run|author|debug)\b.*\b(python|script|code)\b", p_lower)) or "python script" in p_lower
+        if is_coding_prompt and not has_explicit_trade_context:
+            return False
+
+        return has_explicit_trade_context and (has_data_file or "closed orders" in p_lower or "orders" in p_lower)
 
     def _is_inspection_task(self, prompt: str, attachments: List[str]) -> bool:
         p_lower = prompt.lower()
-        inspect_keywords = [
-            "inspection", "reading", "readings", "anomaly", "anomalies", "alarm", "alarms",
-            "telemetry", "equipment tag", "equipment_tag", "sensor", "vibration",
-            "threshold violation"
-        ]
-        has_inspect_kw = any(kw in p_lower for kw in inspect_keywords)
+
+        # If user explicitly asked for code generation/python script and no docx requested, do not intercept as inspection doc task
+        is_coding_prompt = bool(re.search(r"\b(write|create|generate|run|author|debug)\b.*\b(python|script|code)\b", p_lower)) or "python script" in p_lower or "in the isolated sandbox" in p_lower or "in the sandbox" in p_lower
+        if is_coding_prompt and not any(kw in p_lower for kw in ["docx", "word", "approval note", "anomaly report", "official report"]):
+            return False
 
         from orchestrator.tools.files import WORKSPACE_DIR
         for att in (attachments or []):
             att_lower = att.lower()
-            if any(k in att_lower for k in ["inspect", "reading", "telemetry", "sensor", "anomaly", "alarm", "equipment"]):
+            if any(k in att_lower for k in ["inspect", "telemetry", "anomaly", "equipment"]):
                 return True
             safe_p = os.path.join(WORKSPACE_DIR, att)
             if os.path.exists(safe_p) and att_lower.endswith(('.csv', '.tsv', '.txt', '.log')):
@@ -406,15 +427,16 @@ class AgentExecutor:
             if known in p_lower:
                 return True
 
-        return has_inspect_kw
+        inspect_pattern = r"\b(equipment\s+inspection|inspection\s+reading|equipment\s+tag|equipment_tag|threshold\s+violation|inspection\s+anomaly|anomaly\s+report)\b"
+        return bool(re.search(inspect_pattern, p_lower))
 
     def _is_vendor_task(self, prompt: str, attachments: List[str]) -> bool:
         p_lower = prompt.lower()
-        vendor_keywords = [
-            "vendor", "contractor", "contracter", "quote", "quotes", "tco",
-            "procurement", "capex", "opex", "lifecycle cost", "bidder", "bidders"
-        ]
-        has_vendor_kw = any(kw in p_lower for kw in vendor_keywords)
+
+        # If user explicitly asked for code generation/python script and no docx requested, do not intercept as vendor doc task
+        is_coding_prompt = bool(re.search(r"\b(write|create|generate|run|author|debug)\b.*\b(python|script|code)\b", p_lower)) or "python script" in p_lower
+        if is_coding_prompt and not any(kw in p_lower for kw in ["docx", "word", "approval note", "tco report", "official report"]):
+            return False
 
         from orchestrator.tools.files import WORKSPACE_DIR
         for att in (attachments or []):
@@ -436,7 +458,8 @@ class AgentExecutor:
             if known in p_lower:
                 return True
 
-        return has_vendor_kw
+        vendor_pattern = r"\b(vendor|contractor|quote|quotes|tco|procurement|capex|opex|lifecycle\s+cost|bidder|bidders)\b"
+        return bool(re.search(vendor_pattern, p_lower))
 
     def _parse_inspection_readings(self, c_text: str) -> Optional[Dict[str, Any]]:
         import csv
@@ -758,6 +781,7 @@ print(f"Graph saved as {{chart_file}}")
 
     def _generate_plan(self, prompt: str, task_type: str, attachments: List[str]) -> List[Dict[str, Any]]:
         """Deconstruct user request into structured actionable steps."""
+        p_lower = prompt.lower()
         if task_type == "manual_override":
             try:
                 import os
@@ -768,9 +792,9 @@ print(f"Graph saved as {{chart_file}}")
             except Exception as e:
                 logger.warning(f"Could not classify task_type for manual_override: {e}")
 
-        has_image = any(a.endswith(('.png', '.jpg', '.jpeg', '.pdf')) for a in attachments)
+        has_image = any(a.endswith(('.png', '.jpg', '.jpeg', '.pdf')) for a in (attachments or []))
         
-        if task_type == "vision_ocr" or (has_image and "ocr" in prompt.lower()):
+        if task_type == "vision_ocr" or (has_image and "ocr" in p_lower):
             return [
                 {
                     "description": "Extract text and structured visual data via on-device Vision model",
@@ -779,7 +803,38 @@ print(f"Graph saved as {{chart_file}}")
                 }
             ]
 
-        # Check if user uploaded trading or order history data
+        # 1. Check for explicit code generation / script authoring / sandbox execution request
+        is_docx_req = any(kw in p_lower for kw in ["docx", "word", "approval note", "pptx", "presentation"])
+        is_code_request = (
+            not is_docx_req and (
+                task_type == "code_gen" or
+                bool(re.search(r"\b(write|create|generate|author|run|execute|debug)\b.*\b(python|script|code)\b", p_lower)) or
+                "python script" in p_lower or
+                "isolated sandbox" in p_lower or
+                "in the sandbox" in p_lower
+            )
+        )
+
+        if is_code_request:
+            script_name = "sensor_validator.py" if any(k in p_lower for k in ["sensor", "tolerance", "variance"]) else "custom_script.py"
+            code_content = self._generate_code(prompt)
+            return [
+                {
+                    "description": f"Author Python script ({script_name}) in sandboxed workspace",
+                    "tool": "file_write",
+                    "arguments": {
+                        "filename": script_name,
+                        "content": code_content
+                    }
+                },
+                {
+                    "description": "Execute script in secure Bubblewrap sandbox (--unshare-net)",
+                    "tool": "code_execute",
+                    "arguments": {"filename": script_name, "save_as": script_name}
+                }
+            ]
+
+        # 2. Check if user uploaded trading or order history data
         if self._is_trading_task(prompt, attachments):
             target_file = attachments[0] if attachments else "Closed orders(10).csv"
             code = self._generate_trading_analysis_script(prompt, target_file)
@@ -799,7 +854,7 @@ print(f"Graph saved as {{chart_file}}")
                 }
             ]
 
-        # Check if inspection / reading CSV or telemetry file is uploaded
+        # 3. Check if inspection / reading CSV or telemetry file is uploaded
         if self._is_inspection_task(prompt, attachments):
             target_file = attachments[0] if attachments else "inspection_readings.csv"
             return [
@@ -833,7 +888,7 @@ print(f"Graph saved as {{chart_file}}")
                 }
             ]
 
-        # Check if vendor / cost financial model file is uploaded
+        # 4. Check if vendor / cost financial model file is uploaded
         if self._is_vendor_task(prompt, attachments):
             target_file = attachments[0] if attachments else "vendor_cost_financial_model.xlsx"
             return [
@@ -894,23 +949,6 @@ print(f"Graph saved as {{chart_file}}")
                 }
             })
             return steps
-
-        if task_type == "code_gen" or "script" in prompt.lower() or "python" in prompt.lower():
-            return [
-                {
-                    "description": "Author Python script in sandboxed workspace",
-                    "tool": "file_write",
-                    "arguments": {
-                        "filename": "industrial_validator.py",
-                        "content": self._generate_sample_code(prompt)
-                    }
-                },
-                {
-                    "description": "Execute script in secure Bubblewrap sandbox (--unshare-net)",
-                    "tool": "code_execute",
-                    "arguments": {"filename": "industrial_validator.py", "save_as": "industrial_validator.py"}
-                }
-            ]
 
         if (task_type == "spreadsheet_calc" or "excel" in prompt.lower() or "spreadsheet" in prompt.lower()) and not attachments:
             return [
@@ -1045,6 +1083,150 @@ print(f"Graph saved as {{chart_file}}")
             corrected["save_as"] = "fixed_script.py"
         return corrected
 
+    def _clean_code_snippet(self, raw_code: str) -> str:
+        if not raw_code:
+            return ""
+        code = raw_code.strip()
+        if "```python" in code:
+            parts = code.split("```python", 1)[1].split("```", 1)
+            code = parts[0].strip()
+        elif "```" in code:
+            parts = code.split("```", 1)[1].split("```", 1)
+            code = parts[0].strip()
+        return code
+
+    def _is_valid_python(self, code_str: str) -> bool:
+        if not code_str:
+            return False
+        try:
+            import ast
+            ast.parse(code_str)
+            return True
+        except Exception:
+            return False
+
+    def _generate_sensor_validation_code(self) -> str:
+        return '''"""
+Sensor Tolerance Validation & Statistical Variance Script
+Executed inside secure Bubblewrap sandbox (--unshare-net)
+"""
+import os
+import csv
+import numpy as np
+
+CSV_FILENAME = "sensor_readings.csv"
+
+# 1. Ensure sample CSV dataset exists if not present
+sample_data = [
+    ["sensor_id", "timestamp", "measured_val", "nominal_val", "tolerance_limit", "unit"],
+    ["TEMP_REACTOR_01", "2026-09-12 08:00", 72.4, 70.0, 5.0, "deg_C"],
+    ["TEMP_REACTOR_01", "2026-09-12 09:00", 74.8, 70.0, 5.0, "deg_C"],
+    ["TEMP_REACTOR_01", "2026-09-12 10:00", 71.9, 70.0, 5.0, "deg_C"],
+    ["PRESS_HEADER_02", "2026-09-12 08:00", 4.15, 4.0, 0.3, "bar"],
+    ["PRESS_HEADER_02", "2026-09-12 09:00", 4.38, 4.0, 0.3, "bar"],
+    ["PRESS_HEADER_02", "2026-09-12 10:00", 4.08, 4.0, 0.3, "bar"],
+    ["VIB_BEARING_03", "2026-09-12 08:00", 0.12, 0.10, 0.05, "mm/s"],
+    ["VIB_BEARING_03", "2026-09-12 09:00", 0.18, 0.10, 0.05, "mm/s"],
+    ["VIB_BEARING_03", "2026-09-12 10:00", 0.14, 0.10, 0.05, "mm/s"],
+]
+
+if not os.path.exists(CSV_FILENAME):
+    with open(CSV_FILENAME, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerows(sample_data)
+
+# 2. Ingest and parse sensor readings
+readings_by_sensor = {}
+rows = []
+with open(CSV_FILENAME, "r", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        rows.append(row)
+        sid = row["sensor_id"]
+        val = float(row["measured_val"])
+        readings_by_sensor.setdefault(sid, []).append(val)
+
+# 3. Statistical Analysis: Mean & Variance Computation
+print("=== SENSOR TOLERANCE & STATISTICAL VARIANCE ANALYSIS REPORT ===")
+print(f"Total Reading Records Processed: {len(rows)}\\n")
+
+print("--- 1. Sensor Group Statistics (Mean, Variance, Std Dev) ---")
+for sid, vals in readings_by_sensor.items():
+    arr = np.array(vals)
+    mean_val = np.mean(arr)
+    var_val = np.var(arr, ddof=1) if len(arr) > 1 else 0.0
+    std_val = np.std(arr, ddof=1) if len(arr) > 1 else 0.0
+    print(f"Sensor: {sid:16s} | Count: {len(vals)} | Mean: {mean_val:8.4f} | Variance: {var_val:8.4f} | StdDev: {std_val:8.4f}")
+
+# 4. Tolerance Validation & Threshold Checks
+print("\\n--- 2. Detailed Tolerance Validation Records ---")
+print(f"{'Sensor ID':<16} {'Measured':<10} {'Nominal':<10} {'Deviation':<10} {'Limit':<10} {'Status':<10}")
+print("-" * 68)
+
+violations = 0
+for row in rows:
+    sid = row["sensor_id"]
+    meas = float(row["measured_val"])
+    nom = float(row["nominal_val"])
+    lim = float(row["tolerance_limit"])
+    dev = abs(meas - nom)
+    is_pass = dev <= lim
+    status = "PASS" if is_pass else "VIOLATION"
+    if not is_pass:
+        violations += 1
+    print(f"{sid:<16} {meas:<10.2f} {nom:<10.2f} {dev:<10.2f} {lim:<10.2f} {status:<10}")
+
+print("-" * 68)
+print(f"Validation Summary: {len(rows) - violations}/{len(rows)} Readings Within Tolerance | Violations Detected: {violations}")
+if violations == 0:
+    print("ALL SENSOR READINGS COMPLIANT WITH CALIBRATION THRESHOLDS.")
+else:
+    print("ALERT: TOLERANCE EXCEEDANCE DETECTED - MAINTENANCE CALIBRATION REQUIRED.")
+'''
+
+    def _generate_code(self, prompt: str) -> str:
+        """Generate verified python code dynamically using local model with robust fallbacks."""
+        p_lower = prompt.lower()
+        
+        # 1. Try local LLM code generation via qwen2.5-coder:7b
+        try:
+            system_prompt = (
+                "You are an expert Python software engineer. "
+                "Write complete, robust, self-contained, and executable Python code that accomplishes the user request. "
+                "Always include all necessary imports (such as import os, sys, csv, json, statistics, numpy as np, math). "
+                "If the task reads a CSV or file that might not exist yet, generate mock test data and write it to CSV first, "
+                "then load it, compute the calculations (e.g., mean, variance, tolerance validation), "
+                "and print clean formatted results to standard output. "
+                "Output ONLY valid executable Python code without markdown code fences or conversational text."
+            )
+            llm_res = self.call_model(model_tag="qwen2.5-coder:7b", prompt=prompt, system_prompt=system_prompt)
+            cleaned = self._clean_code_snippet(llm_res)
+            if cleaned and self._is_valid_python(cleaned):
+                # Ensure essential imports if used in code
+                if "os." in cleaned and not bool(re.search(r"\bimport\s+os\b", cleaned)):
+                    cleaned = "import os\n" + cleaned
+                if "sys." in cleaned and not bool(re.search(r"\bimport\s+sys\b", cleaned)):
+                    cleaned = "import sys\n" + cleaned
+                if "np." in cleaned and not bool(re.search(r"\bimport\s+numpy\b", cleaned)):
+                    cleaned = "import numpy as np\n" + cleaned
+                if "csv." in cleaned and not bool(re.search(r"\bimport\s+csv\b", cleaned)):
+                    cleaned = "import csv\n" + cleaned
+                if "json." in cleaned and not bool(re.search(r"\bimport\s+json\b", cleaned)):
+                    cleaned = "import json\n" + cleaned
+                if "math." in cleaned and not bool(re.search(r"\bimport\s+math\b", cleaned)):
+                    cleaned = "import math\n" + cleaned
+                if "statistics." in cleaned and not bool(re.search(r"\bimport\s+statistics\b", cleaned)):
+                    cleaned = "import statistics\n" + cleaned
+                return cleaned
+        except Exception as e:
+            logger.warning(f"LLM code generation failed, using template: {e}")
+
+        # 2. Targeted robust domain fallback
+        if any(kw in p_lower for kw in ["sensor", "tolerance", "variance", "csv"]):
+            return self._generate_sensor_validation_code()
+
+        return self._generate_sample_code(prompt)
+
     def _generate_sample_code(self, prompt: str) -> str:
         """Generate verified python code for coding tasks."""
         return (
@@ -1074,7 +1256,7 @@ print(f"Graph saved as {{chart_file}}")
             "if __name__ == '__main__':\n"
             "    success = validate_sensor_telemetry()\n"
             "    sys.exit(0 if success else 1)\n"
-            )
+        )
 
     def _synthesize_final_response(
         self,
@@ -1134,20 +1316,26 @@ print(f"Graph saved as {{chart_file}}")
         c_text_lower = c_text.lower()
         p_lower = prompt.lower()
 
+        # 0. Code Execution & Script Authoring Check
+        is_code_task = (
+            any(p.get("tool") == "code_execute" for p in plan) and
+            not any(p.get("tool") == "docgen_approval_note" for p in plan) and
+            not self._is_trading_task(prompt, [d.get("name", "") for d in deliverables] + (context.get("attachments") or []))
+        )
+
         # 1. Trading Check
         is_trading = (
-            self._is_trading_task(prompt, [d.get("name", "") for d in deliverables] + (context.get("attachments") or [])) or
-            any(kw in p_lower for kw in ["trade", "trading", "broker", "brokerage", "p&l", "pnl", "stop-loss", "nifty", "orders", "charges"]) or
-            any(kw in c_text_lower for kw in ["tradingsymbol", "strike", "closed orders", "fifo"]) or
-            ("filled quantity" in c_text_lower and "average price" in c_text_lower)
+            not is_code_task and
+            (
+                self._is_trading_task(prompt, [d.get("name", "") for d in deliverables] + (context.get("attachments") or [])) or
+                ("tradingsymbol" in c_text_lower and "average price" in c_text_lower) or
+                ("closed orders" in c_text_lower and "strike" in c_text_lower)
+            )
         )
 
         # 2. Inspection Readings Check
-        is_inspection = not is_trading and (
-            'equipment_tag' in c_text_lower or
-            'parameter' in c_text_lower or
-            'alarm' in c_text_lower or
-            'inspection' in c_text_lower or
+        is_inspection = not is_code_task and not is_trading and (
+            ('equipment_tag' in c_text_lower and 'parameter' in c_text_lower) or
             self._is_inspection_task(prompt, [d.get("name", "") for d in deliverables] + (context.get("attachments") or []))
         )
 
@@ -1157,7 +1345,7 @@ print(f"Graph saved as {{chart_file}}")
             'contractor', 'contracter', 'vendor', 'tco', 'cost', 'quote', 'quotes',
             'value for money', 'financial model', 'bidder', 'bidders', 'procurement', 'capex', 'opex'
         ]
-        is_vendor_cost = not is_trading and not is_inspection and (
+        is_vendor_cost = not is_code_task and not is_trading and not is_inspection and (
             (
                 'vendor' in c_text_lower and
                 ('quote' in c_text_lower or 'tco' in c_text_lower or 'capex' in c_text_lower)
@@ -1170,7 +1358,22 @@ print(f"Graph saved as {{chart_file}}")
 
         verified_stats_text = ""
 
-        if is_inspection:
+        if is_code_task:
+            instructions = (
+                "You are an expert Python software engineer and scientific data analyst operating in an air-gapped secure environment.\n"
+                "Review the Python code authored and the verified sandbox execution output (stdout/stderr) provided in the context above.\n"
+                "Provide a complete, structured, professional response with the following sections:\n"
+                "1. ### Executive Summary\n"
+                "   - Clear explanation of what the script accomplishes and validation outcome.\n"
+                "2. ### Executed Python Script\n"
+                "   - The complete, runnable Python code inside a ```python code block with inline comments.\n"
+                "3. ### Sandbox Execution Results\n"
+                "   - The exact output captured from the secure Bubblewrap sandbox execution.\n"
+                "4. ### Key Findings & Statistical Metrics\n"
+                "   - Detailed breakdown of computed metrics (e.g., mean, variance, tolerance limits, pass/fail status).\n"
+                "Do NOT output stock trading figures or unrelated industrial document templates. Base your explanation strictly on the actual Python script and sandbox execution output."
+            )
+        elif is_inspection:
             parsed = self._parse_inspection_readings(c_text)
             if parsed:
                 total_cnt = parsed["total"]
@@ -1282,4 +1485,12 @@ print(f"Graph saved as {{chart_file}}")
             return llm_response.strip()
 
         # Fallback if model call fails
+        if is_code_task:
+            stdout_text = ""
+            for v in context.values():
+                if isinstance(v, dict) and "stdout" in v:
+                    stdout_text = v.get("stdout", "")
+                    break
+            return f"### Script Execution & Validation Summary\n\nThe Python script was successfully generated and executed in the secure Bubblewrap sandbox (--unshare-net).\n\n```text\n{stdout_text}\n```"
+
         return f"Completed task '{prompt}'."

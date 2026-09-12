@@ -43,13 +43,34 @@ def execute_python_code(
     If save_deliverable_name is provided, it is saved under that name.
     """
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
-    
-    # Determine target script path
-    if code_or_filename.endswith(".py") and os.path.exists(os.path.join(WORKSPACE_DIR, code_or_filename)):
-        script_path = os.path.join(WORKSPACE_DIR, code_or_filename)
-        script_relname = code_or_filename
+    code_or_filename = (code_or_filename or "").strip()
+
+    # Determine if code_or_filename is a reference to an existing file in workspace
+    is_multiline_or_code = (
+        "\n" in code_or_filename
+        or any(code_or_filename.startswith(kw) for kw in ["import ", "from ", "def ", "class ", "print(", "#", "try:", "with "])
+        or any(sym in code_or_filename for sym in ["=", "(", ")", ":", "{", "}", ";"])
+    )
+
+    if not is_multiline_or_code and code_or_filename.endswith(".py"):
+        candidate_path = os.path.join(WORKSPACE_DIR, code_or_filename)
+        if os.path.exists(candidate_path):
+            script_path = candidate_path
+            script_relname = code_or_filename
+        else:
+            return {
+                "success": False,
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": f"FileNotFoundError: Script file '{code_or_filename}' not found in workspace.",
+                "duration_sec": 0.0,
+                "network_isolated": True
+            }
     else:
+        # It is actual python code string
         script_relname = save_deliverable_name or f"agent_script_{int(time.time())}.py"
+        if not script_relname.endswith(".py"):
+            script_relname += ".py"
         script_path = os.path.join(WORKSPACE_DIR, script_relname)
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(code_or_filename)

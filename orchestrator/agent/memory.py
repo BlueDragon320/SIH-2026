@@ -38,6 +38,7 @@ class TaskState(BaseModel):
     final_response: Optional[str] = ""
     created_at: str
     updated_at: str
+    user_id: Optional[str] = None
 
 class TaskMemoryStore:
     def __init__(self, db_path: str = DB_PATH):
@@ -73,6 +74,11 @@ class TaskMemoryStore:
         except Exception:
             pass
         conn.commit()
+        try:
+            cur.execute("ALTER TABLE tasks ADD COLUMN user_id TEXT")
+        except Exception:
+            pass
+        conn.commit()
         conn.close()
 
     def save_task(self, state: TaskState):
@@ -82,8 +88,8 @@ class TaskMemoryStore:
             INSERT OR REPLACE INTO tasks (
                 task_id, prompt, status, model_assigned, ollama_tag, task_type,
                 plan_json, current_step, total_steps, steps_json, deliverables_json,
-                messages_json, final_response, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                messages_json, final_response, created_at, updated_at, user_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             state.task_id,
             state.prompt,
@@ -99,7 +105,8 @@ class TaskMemoryStore:
             json.dumps(state.messages),
             state.final_response,
             state.created_at,
-            datetime.datetime.now().isoformat()
+            datetime.datetime.now().isoformat(),
+            state.user_id
         ))
         conn.commit()
         conn.close()
@@ -145,7 +152,8 @@ class TaskMemoryStore:
             attachments=att_list,
             final_response=row["final_response"],
             created_at=row["created_at"],
-            updated_at=row["updated_at"]
+            updated_at=row["updated_at"],
+            user_id=row["user_id"] if "user_id" in row_keys else None
         )
 
     def get_task(self, task_id: str) -> Optional[TaskState]:
@@ -180,3 +188,58 @@ class TaskMemoryStore:
         conn.close()
         return deleted
 
+
+    def get_tasks_by_user(self, user_id: str, limit: int = 20) -> List[TaskState]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, limit))
+        rows = cur.fetchall()
+        conn.close()
+        return [self._build_task_state(row) for row in rows]
+
+    def get_task_stats_by_user(self) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT user_id, 
+                       COUNT(*) as task_count, 
+                       MAX(created_at) as last_task_at,
+                       GROUP_CONCAT(DISTINCT ollama_tag) as models_csv
+                FROM tasks 
+                WHERE user_id IS NOT NULL 
+                GROUP BY user_id
+            """)
+            rows = cur.fetchall()
+            stats = []
+            for row in rows:
+                models_csv = row["models_csv"] or ""
+                models_list = [m.strip() for m in models_csv.split(",") if m.strip()]
+                stats.append({
+                    "user_id": row["user_id"],
+                    "task_count": row["task_count"],
+                    "last_task_at": row["last_task_at"],
+                    "models_used": models_list
+                })
+        except Exception:
+            stats = []
+        conn.close()
+
+        # Resolve usernames from auth DB
+        try:
+            auth_conn = sqlite3.connect(os.path.join(PROJECT_ROOT, "data", "auth.db"))
+            auth_conn.row_factory = sqlite3.Row
+            auth_cur = auth_conn.cursor()
+            for s in stats:
+                auth_cur.execute("SELECT username FROM users WHERE id = ?", (s["user_id"],))
+                row = auth_cur.fetchone()
+                s["username"] = row["username"] if row else s["user_id"]
+            auth_conn.close()
+        except Exception:
+            for s in stats:
+                if "username" not in s:
+                    s["username"] = s["user_id"]
+
+        return stats

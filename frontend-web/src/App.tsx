@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { LoginPage } from './components/auth/LoginPage';
+import { AdminDashboard } from './pages/AdminDashboard';
 import { Sidebar } from './components/layout/Sidebar';
 import { ChatHeader } from './components/chat/ChatHeader';
 import { HeroEmptyState } from './components/chat/HeroEmptyState';
@@ -10,7 +15,7 @@ import { ParametersDrawer } from './components/drawers/ParametersDrawer';
 import { ModelManagerModal } from './components/modals/ModelManagerModal';
 import { useChatStore } from './store/useChatStore';
 
-export const App: React.FC = () => {
+const ChatWorkbench = () => {
   const {
     getActiveSession,
     createSession,
@@ -25,20 +30,16 @@ export const App: React.FC = () => {
   const currentSession = getActiveSession();
   const hasMessages = (currentSession?.messages?.length || 0) > 0;
 
-  // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+K or Cmd+K: New Chat
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         createSession();
       }
-      // Ctrl+B or Cmd+B: Toggle Sidebar
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         setSidebarOpen(prev => !prev);
       }
-      // Escape: Close modals
       if (e.key === 'Escape') {
         setModelManagerOpen(false);
         setParamsOpen(false);
@@ -51,25 +52,18 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-background text-text-primary overflow-hidden font-sans">
-      {/* 1. Left Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onOpenModelManager={() => setModelManagerOpen(true)}
       />
-
-      {/* 2. Main Center & Right Area with Resizable Panels */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         <PanelGroup direction="horizontal" className="flex-1 h-full">
-          {/* Chat Canvas Panel */}
           <Panel defaultSize={isArtifactOpen ? 55 : 100} minSize={35} className="flex flex-col h-full overflow-hidden bg-background">
-            {/* Top Navigation Bar */}
             <ChatHeader
               sidebarOpen={sidebarOpen}
               onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             />
-
-            {/* Chat Body: Empty Hero or Message Stream */}
             <div className="flex-1 flex flex-col overflow-hidden relative">
               {hasMessages ? (
                 <MessageThread messages={currentSession?.messages || []} />
@@ -77,12 +71,8 @@ export const App: React.FC = () => {
                 <HeroEmptyState />
               )}
             </div>
-
-            {/* Floating Chat Input Dock */}
             <ChatInputDock />
           </Panel>
-
-          {/* Claude-Style Artifacts Resizable Side Drawer (50/50 Split View) */}
           {isArtifactOpen && (
             <>
               <PanelResizeHandle className="w-1.5 bg-border hover:bg-crimson-600/60 transition-colors cursor-col-resize active:bg-crimson-600" />
@@ -93,16 +83,62 @@ export const App: React.FC = () => {
           )}
         </PanelGroup>
       </div>
-
-      {/* 3. Slide-out Advanced Parameters Drawer */}
       <ParametersDrawer />
-
-      {/* 4. Model Manager Modal */}
       <ModelManagerModal
         isOpen={modelManagerOpen}
         onClose={() => setModelManagerOpen(false)}
       />
     </div>
+  );
+};
+
+const RootRoute: React.FC = () => {
+  const { user, isAdmin, isLoading } = useAuth();
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-text-primary">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-crimson-500"></div>
+      </div>
+    );
+  }
+  if (isAdmin || user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+  return <ChatWorkbench />;
+};
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route 
+          path="/" 
+          element={
+            <ProtectedRoute>
+              <RootRoute />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/workbench" 
+          element={
+            <ProtectedRoute>
+              <ChatWorkbench />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/admin/*" 
+          element={
+            <ProtectedRoute requireAdmin={true}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AuthProvider>
   );
 };
 export default App;

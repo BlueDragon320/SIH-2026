@@ -67,6 +67,10 @@ interface ChatState {
   network: NetworkStatus | null;
   fetchTelemetry: () => Promise<void>;
 
+  // User Session Management
+  initUserSessions: (user: any) => Promise<void>;
+  clearUserSessions: () => void;
+
   // Streaming & Execution
   isStreaming: boolean;
   activeAbortController: AbortController | null;
@@ -75,10 +79,32 @@ interface ChatState {
   regenerateLastMessage: () => Promise<void>;
 }
 
+function getUserStorageKey(): string {
+  try {
+    const token = localStorage.getItem('wb_access_token');
+    if (token) {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      const payload = JSON.parse(jsonPayload);
+      if (payload.sub) {
+        return `workbench_sessions_v2_${payload.sub}`;
+      }
+    }
+  } catch {}
+  return 'workbench_sessions_v2';
+}
+
 // Load initial sessions from localStorage
 function loadSavedSessions(): Session[] {
   try {
-    const data = localStorage.getItem('workbench_sessions_v2');
+    const key = getUserStorageKey();
+    const data = localStorage.getItem(key) || localStorage.getItem('workbench_sessions_v2');
     if (data) return JSON.parse(data);
   } catch {}
   const defaultSession: Session = {
@@ -87,15 +113,55 @@ function loadSavedSessions(): Session[] {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     modelOverride: null,
+    ragEnabled: false,
     messages: [],
   };
   return [defaultSession];
 }
 
-function saveSessions(sessions: Session[]) {
+export async function syncChatToBackend(session: Session) {
+  if (!session || !session.messages || session.messages.length === 0) return;
   try {
+    await apiClient.syncUserChat(
+      session.id,
+      session.title || 'Untitled Chat',
+      JSON.stringify(session.messages)
+    );
+  } catch (e) {
+    // Offline or network error
+  }
+}
+
+export async function syncAllSessionsToBackend() {
+  try {
+    const sessions = useChatStore.getState()?.sessions || [];
+    for (const s of sessions) {
+      if (s.messages && s.messages.length > 0) {
+        await syncChatToBackend(s);
+      }
+    }
+  } catch {}
+}
+
+let syncTimeout: any = null;
+function saveSessions(sessions: Session[]) {
+  const key = getUserStorageKey();
+  try {
+    localStorage.setItem(key, JSON.stringify(sessions));
     localStorage.setItem('workbench_sessions_v2', JSON.stringify(sessions));
   } catch {}
+
+  // Immediate debounced synchronization to backend
+  clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(() => {
+    try {
+      const activeId = useChatStore.getState()?.activeSessionId;
+      const active = sessions.find(s => s.id === activeId) || sessions[0];
+      if (active && active.messages && active.messages.length > 0) {
+        syncChatToBackend(active);
+      }
+    } catch {}
+  }, 100);
 }
 
 function createArtifactForFile(fname: string, extraData?: any): Artifact | null {
@@ -216,6 +282,13 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
 const initialSessions = loadSavedSessions();
 const initialActiveSession = initialSessions[0] || null;
 
+// Initial background sync of any existing local sessions to backend for Master Head Admin
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    syncAllSessionsToBackend();
+  }, 1000);
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: initialSessions,
   activeSessionId: initialActiveSession?.id || null,
@@ -264,9 +337,94 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeArtifact: null,
       isArtifactOpen: false,
     });
+    apiClient.deleteUserChat(id).catch(() => {});
     if (filtered.length === 0) {
       get().createSession();
     }
+  },
+
+  initUserSessions: async (user: any) => {
+    if (!user) return;
+    const userKey = `workbench_sessions_v2_${user.id || user.username}`;
+    let loadedSessions: Session[] = [];
+
+    // 1. Try local cache
+    try {
+      const cached = localStorage.getItem(userKey);
+      if (cached) {
+        loadedSessions = JSON.parse(cached);
+      }
+    } catch {}
+
+    // 2. Fetch authoritative chat sessions from server (database / json store)
+    try {
+      const serverChats = await apiClient.getUserChats();
+      if (serverChats && serverChats.length > 0) {
+        const mappedSessions: Session[] = serverChats.map((c: any) => {
+          let parsedMsgs = [];
+          try {
+            parsedMsgs = typeof c.messages_json === 'string' ? JSON.parse(c.messages_json) : c.messages_json || [];
+          } catch {}
+          return {
+            id: c.session_id,
+            title: c.session_name || 'Untitled Chat',
+            createdAt: c.created_at || new Date().toISOString(),
+            updatedAt: c.updated_at || new Date().toISOString(),
+            modelOverride: null,
+            ragEnabled: false,
+            messages: parsedMsgs,
+          };
+        });
+
+        if (mappedSessions.length > 0) {
+          loadedSessions = mappedSessions;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch user chats from server', e);
+    }
+
+    if (loadedSessions.length === 0) {
+      loadedSessions = [{
+        id: `session_${Date.now()}`,
+        title: 'New Chat',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        modelOverride: null,
+        ragEnabled: false,
+        messages: [],
+      }];
+    }
+
+    try {
+      localStorage.setItem(userKey, JSON.stringify(loadedSessions));
+      localStorage.setItem('workbench_sessions_v2', JSON.stringify(loadedSessions));
+    } catch {}
+
+    set({
+      sessions: loadedSessions,
+      activeSessionId: loadedSessions[0]?.id || null,
+      activeArtifact: null,
+      isArtifactOpen: false,
+    });
+  },
+
+  clearUserSessions: () => {
+    const defaultSession: Session = {
+      id: `session_${Date.now()}`,
+      title: 'New Chat',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      modelOverride: null,
+      ragEnabled: false,
+      messages: [],
+    };
+    set({
+      sessions: [defaultSession],
+      activeSessionId: defaultSession.id,
+      activeArtifact: null,
+      isArtifactOpen: false,
+    });
   },
 
   renameSession: (id: string, newTitle: string) => {
@@ -379,7 +537,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const res = await apiClient.invokeTool('code_execute', {
         filename,
+        code,
         content: code,
+        save_as: filename,
       });
 
       if (currentArtifact && currentArtifact.type === 'code') {

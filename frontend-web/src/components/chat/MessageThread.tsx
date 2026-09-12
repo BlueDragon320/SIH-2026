@@ -156,6 +156,7 @@ export const MessageThread: React.FC<MessageThreadProps> = ({ messages }) => {
             key={msg.id || index}
             message={msg}
             isLast={index === messages.length - 1}
+            isGenerating={isStreaming && index === messages.length - 1}
             onRegenerate={regenerateLastMessage}
             onOpenArtifact={openArtifact}
             onRunCode={runCodeArtifact}
@@ -191,6 +192,7 @@ export const MessageThread: React.FC<MessageThreadProps> = ({ messages }) => {
 interface MessageItemProps {
   message: Message;
   isLast: boolean;
+  isGenerating?: boolean;
   onRegenerate: () => void;
   onOpenArtifact: (artifact: Artifact) => void;
   onRunCode: (code: string, filename?: string) => void;
@@ -199,6 +201,7 @@ interface MessageItemProps {
 const MessageItem: React.FC<MessageItemProps> = ({
   message,
   isLast,
+  isGenerating,
   onRegenerate,
   onOpenArtifact,
   onRunCode,
@@ -290,7 +293,26 @@ const MessageItem: React.FC<MessageItemProps> = ({
             code({ node, inline, className, children, ...props }: any) {
               const match = /language-(\w+)/.exec(className || '');
               const lang = match ? match[1] : '';
-              const codeString = String(children).replace(/\n$/, '');
+
+              // Recursively extract pure text from HAST node or React children tree
+              const extractText = (item: any): string => {
+                if (!item) return '';
+                if (typeof item === 'string') return item;
+                if (typeof item === 'number') return String(item);
+                if (Array.isArray(item)) return item.map(extractText).join('');
+                if (item?.type === 'text' && typeof item?.value === 'string') return item.value;
+                if (item?.value && typeof item?.value === 'string') return item.value;
+                if (item?.props && item?.props?.children) return extractText(item.props.children);
+                if (item?.children && Array.isArray(item?.children)) return item.children.map(extractText).join('');
+                return '';
+              };
+
+              const codeFromNode = node ? extractText(node) : '';
+              const codeFromChildren = extractText(children);
+              const rawCode = (codeFromNode && !codeFromNode.includes('[object Object]'))
+                ? codeFromNode
+                : codeFromChildren;
+              const codeString = rawCode.replace(/\n$/, '');
               const isMultiline = codeString.includes('\n');
               const isBlockCode = !inline && (lang || isMultiline || className?.includes('hljs'));
 
@@ -412,34 +434,46 @@ const MessageItem: React.FC<MessageItemProps> = ({
       )}
 
       {/* Action Toolbar */}
-      <div className="flex items-center gap-2 pt-1 text-text-muted text-xs">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className={`flex items-center gap-1.5 py-1 px-2 rounded-md transition-colors ${
-            copied
-              ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-900/50'
-              : 'hover:text-text-primary hover:bg-surface'
-          }`}
-          title="Copy response"
-        >
-          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-          <span className="font-medium text-[11px]">{copied ? 'Copied' : 'Copy'}</span>
-        </button>
+      <div className="flex items-center gap-2 pt-1 text-text-muted text-xs min-h-[28px]">
+        {isGenerating ? (
+          <div className="flex items-center gap-2 text-crimson-400 py-1 px-2.5 rounded-md bg-crimson-500/10 border border-crimson-500/20 text-xs font-medium animate-pulse">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-crimson-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-crimson-500"></span>
+            </span>
+            <span>Generating response...</span>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className={`flex items-center gap-1.5 py-1 px-2 rounded-md transition-colors ${
+                copied
+                  ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-900/50'
+                  : 'hover:text-text-primary hover:bg-surface'
+              }`}
+              title="Copy response"
+            >
+              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              <span className="font-medium text-[11px]">{copied ? 'Copied' : 'Copy'}</span>
+            </button>
 
-        {isLast && (
-          <button
-            type="button"
-            onClick={onRegenerate}
-            className="flex items-center gap-1.5 hover:text-text-primary py-1 px-2 rounded-md hover:bg-surface transition-colors"
-            title="Regenerate turn"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span className="font-medium text-[11px]">Regenerate</span>
-          </button>
+            {isLast && (
+              <button
+                type="button"
+                onClick={onRegenerate}
+                className="flex items-center gap-1.5 hover:text-text-primary py-1 px-2 rounded-md hover:bg-surface transition-colors"
+                title="Regenerate turn"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="font-medium text-[11px]">Regenerate</span>
+              </button>
+            )}
+          </>
         )}
 
-        {message.totalTokens && (
+        {message.totalTokens && !isGenerating && (
           <span className="font-mono text-[10px] text-text-dim ml-auto">
             {message.totalTokens} tokens {message.evalDurationMs ? `• ${(message.evalDurationMs / 1000).toFixed(1)}s` : ''}
           </span>

@@ -41,7 +41,6 @@ export async function streamOllamaChat(
   }
 
   if (params.systemPrompt && params.systemPrompt.trim()) {
-    // Ensure system prompt is first message or system field
     payload.messages = [
       { role: 'system', content: params.systemPrompt.trim() },
       ...messages.filter(m => m.role !== 'system'),
@@ -49,9 +48,13 @@ export async function streamOllamaChat(
   }
 
   try {
+    let token = localStorage.getItem('wb_access_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     const response = await fetch('/ollama/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
       signal,
     });
@@ -100,7 +103,6 @@ export async function streamOllamaChat(
         if (delta) {
           tokenCount++;
 
-          // Parse DeepSeek-R1 / Qwen thinking tags
           let remaining = delta;
           while (remaining.length > 0) {
             if (!isInsideThink) {
@@ -158,7 +160,6 @@ export async function streamOllamaChat(
     }
   } catch (err: any) {
     if (signal?.aborted) {
-      // Stream aborted by user
       return;
     }
     callbacks.onError(err);
