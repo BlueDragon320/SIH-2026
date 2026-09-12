@@ -73,3 +73,10 @@ data/*.log
 Thumbs.db
 .vscode/
 .idea/
+
+# PyInstaller & Build Outputs
+build/
+dist/
+*.spec
+run_workbench.exe
+

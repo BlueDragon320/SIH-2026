@@ -32,20 +32,24 @@ def api_delete(endpoint: str):
 def get_gpu_telemetry():
     try:
         out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
             text=True, timeout=1.0
         ).strip().split(",")
-        if len(out) >= 3:
-            util = out[0].strip()
-            mem_used = int(out[1].strip())
-            mem_total = int(out[2].strip())
+        if len(out) >= 4:
+            name = out[0].strip()
+            short_name = name.replace("NVIDIA ", "").replace("GeForce ", "").replace(" Laptop GPU", "").replace(" GPU", "")
+            util = out[1].strip()
+            mem_used = int(out[2].strip())
+            mem_total = int(out[3].strip())
             return {
+                "name": name,
+                "short_name": short_name,
                 "util": f"{util}%",
                 "mem": f"{round(mem_used/1024, 1)}/{round(mem_total/1024, 1)}GB"
             }
     except Exception:
         pass
-    return {"util": "32%", "mem": "3.1/6.0GB"}
+    return {"name": "RTX 5050", "short_name": "RTX 5050", "util": "0%", "mem": "0.0/8.0GB"}
 
 def get_file_mime(filename: str) -> str:
     ext = os.path.splitext(filename)[1].lower()

@@ -26,10 +26,11 @@ def render_header(gpu_info: dict, egress_rate: float, active_model_label: str = 
             </div>
             ''')
         with col_h_mid:
+            gpu_label = gpu_info.get("short_name", "RTX 5050")
             render_html(f'''
             <div class="header-center" style="display:flex; gap:8px; align-items:center; justify-content:center;">
                 <span class="badge badge-red"><span class="live-dot"></span>{active_model_label}</span>
-                <span class="badge badge-amber">RTX 3060: {gpu_info["util"]} ({gpu_info["mem"]})</span>
+                <span class="badge badge-amber">{gpu_label}: {gpu_info["util"]} ({gpu_info["mem"]})</span>
                 <span class="badge badge-green">0.0 B/S EGRESS</span>
             </div>
             ''')

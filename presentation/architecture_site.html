@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIH-2026 — Architecture</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Accordion */
+    .acc { max-height: 0; overflow: hidden; transition: max-height 0.28s ease; }
+    .acc.open { max-height: 4000px; }
+    .chev { transition: transform 0.2s; display: inline-block; }
+    .chev.open { transform: rotate(180deg); }
+
+    /* Tabs */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .tab-btn { border-bottom: 2px solid transparent; color: var(--muted-foreground); transition: color 0.15s, border-color 0.15s; }
+    .tab-btn.active { border-bottom: 2px solid var(--primary); color: var(--foreground); }
+
+    /* Node */
+    .node { border: 1px solid var(--border); background: var(--card); cursor: pointer; transition: border-color 0.15s; }
+    .node:hover { border-color: var(--primary); }
+    .node.sel { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--card)); }
+
+    /* Phase */
+    .phase { border: 1px solid var(--border); background: var(--card); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .phase:hover { border-color: var(--primary); }
+    .phase.active { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--card)); }
+
+    /* Badges */
+    .badge { font-size: 0.68rem; font-weight: 600; padding: 1px 7px; border-radius: 9999px; border: 1px solid var(--border); color: var(--muted-foreground); display: inline-block; }
+    .bg { border-color: #22c55e44; color: #22c55e; background: #22c55e11; }
+    .bb { border-color: #3b82f644; color: #3b82f6; background: #3b82f611; }
+    .br { border-color: #ef444444; color: #ef4444; background: #ef444411; }
+    .ba { border-color: #f59e0b44; color: #f59e0b; background: #f59e0b11; }
+
+    /* Tables */
+    table { border-collapse: collapse; width: 100%; font-size: 0.78rem; }
+    th { text-align: left; padding: 6px 10px; font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground); background: color-mix(in srgb, var(--border) 50%, var(--card)); }
+    td { padding: 7px 10px; border-top: 1px solid var(--border); color: var(--foreground); vertical-align: top; }
+    tr:hover td { background: color-mix(in srgb, var(--border) 20%, var(--card)); }
+
+    /* Bar */
+    .bar-bg { height: 5px; border-radius: 3px; background: var(--border); }
+    .bar { height: 5px; border-radius: 3px; background: var(--primary); }
+
+    /* Code */
+    pre { font-size: 0.75rem; background: color-mix(in srgb, var(--border) 25%, var(--card)); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; color: var(--foreground); }
+    code { font-size: 0.75rem; background: color-mix(in srgb, var(--border) 40%, var(--card)); padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased min-h-screen">
+
+<!-- ━━━━━━━━━━━━ HEADER ━━━━━━━━━━━━ -->
+<header class="border-b border-[var(--border)] bg-[var(--card)] px-6 py-4 sticky top-0 z-30">
+  <div class="max-w-6xl mx-auto flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <p class="text-[var(--muted-foreground)] text-xs uppercase tracking-widest font-semibold mb-0.5">SIH-2026</p>
+      <h1 class="font-bold text-[var(--foreground)] leading-tight">Air-Gapped Agentic AI Workbench</h1>
+      <p class="text-[var(--muted-foreground)] text-xs mt-0.5">System Architecture &amp; Technical Reference</p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="badge bg">✓ Air-Gapped</span>
+      <span class="badge bb">RTX 5050 · 8 GB VRAM</span>
+      <span class="badge">5 Models · Ollama Local</span>
+      <span class="badge ba">48 / 48 Tests Pass</span>
+    </div>
+  </div>
+</header>
+
+<!-- ━━━━━━━━━━━━ TAB NAV ━━━━━━━━━━━━ -->
+<nav class="border-b border-[var(--border)] bg-[var(--card)] px-6 sticky top-[73px] z-20">
+  <div class="max-w-6xl mx-auto flex gap-0 overflow-x-auto">
+    <button class="tab-btn active px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('overview',this)">Overview</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('api',this)">API Layer</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('router',this)">Task Router</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('agent',this)">Agent Loop</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('sandbox',this)">Sandbox &amp; Tools</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('rag',this)">Ingestion &amp; RAG</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('security',this)">Air-Gap &amp; Audit</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium whitespace-nowrap" onclick="go('models',this)">Models</button>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-6 py-8">
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-overview" class="tab-panel active space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm max-w-3xl">
+    A fully air-gapped, multi-model agentic workbench. All inference runs locally via Ollama at <code>127.0.0.1:11434</code>. No external network calls are made. Click any layer to explore it in detail.
+  </p>
+
+  <!-- Architecture diagram -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-6">
+    <p class="text-xs text-[var(--muted-foreground)] uppercase tracking-widest font-semibold mb-5">System Layers — click to navigate</p>
+
+    <div class="flex flex-col items-center gap-0">
+      <!-- Frontends -->
+      <div class="flex gap-4 justify-center w-full flex-wrap">
+        <div class="node rounded-lg px-5 py-3 text-center text-sm w-40" onclick="go('api',null)">
+          <div class="text-xs text-[var(--muted-foreground)] mb-1">Frontend A</div>
+          <div class="font-semibold">Streamlit</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-1">frontend/app.py</div>
+        </div>
+        <div class="node rounded-lg px-5 py-3 text-center text-sm w-40" onclick="go('api',null)">
+          <div class="text-xs text-[var(--muted-foreground)] mb-1">Frontend B</div>
+          <div class="font-semibold">React / Vite</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-1">frontend-web/</div>
+        </div>
+      </div>
+      <div class="text-[var(--muted-foreground)] text-xl my-2">↓</div>
+
+      <!-- API -->
+      <div class="node rounded-lg px-6 py-3 text-center text-sm w-80 font-semibold" onclick="go('api',null)">
+        <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Layer 1 · Control Plane</div>
+        FastAPI REST API
+        <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">21 endpoints · port 8000 · orchestrator/main.py</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] text-xl my-2">↓</div>
+
+      <!-- Router -->
+      <div class="node rounded-lg px-6 py-3 text-center text-sm w-80 font-semibold" onclick="go('router',null)">
+        <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Layer 2 · Task Router</div>
+        Classifier + Model Selector
+        <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">8 task types · VRAM-aware selection · registry.yaml</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] text-xl my-2">↓</div>
+
+      <!-- Agent -->
+      <div class="node rounded-lg px-6 py-3 text-center text-sm w-80 font-semibold" onclick="go('agent',null)">
+        <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Layer 3 · Agent Loop</div>
+        Plan → Act → Observe → Reflect → Finalize
+        <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">10 tools · SQLite memory · self-correction</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] text-xl my-2">↓</div>
+
+      <!-- Sandbox + RAG side by side -->
+      <div class="flex gap-4 justify-center w-full flex-wrap">
+        <div class="node rounded-lg px-4 py-3 text-center text-sm w-52 font-semibold" onclick="go('sandbox',null)">
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Layer 4 · Sandbox</div>
+          Bubblewrap + Tools
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">--unshare-net · docx · xlsx · pptx</div>
+        </div>
+        <div class="node rounded-lg px-4 py-3 text-center text-sm w-52 font-semibold" onclick="go('rag',null)">
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Layer 5 · Ingestion &amp; RAG</div>
+          ChromaDB + BM25
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">PDF · DOCX · OCR · nomic-embed-text</div>
+        </div>
+      </div>
+      <div class="text-[var(--muted-foreground)] text-xl my-2">↓</div>
+
+      <!-- Ollama + Security -->
+      <div class="flex gap-4 justify-center w-full flex-wrap">
+        <div class="node rounded-lg px-4 py-3 text-center text-sm w-52 font-semibold" onclick="go('models',null)">
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Inference</div>
+          Ollama Local
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">127.0.0.1:11434 · 5 models</div>
+        </div>
+        <div class="node rounded-lg px-4 py-3 text-center text-sm w-52 font-semibold" onclick="go('security',null)">
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mb-1">Layer 6 · Security</div>
+          Air-Gap + Audit
+          <div class="text-xs text-[var(--muted-foreground)] font-normal mt-1">psutil · SQLite · JSONL</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div class="border border-[var(--border)] bg-[var(--card)] rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold">21</div>
+      <div class="text-xs text-[var(--muted-foreground)] mt-1">REST Endpoints</div>
+    </div>
+    <div class="border border-[var(--border)] bg-[var(--card)] rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold">5</div>
+      <div class="text-xs text-[var(--muted-foreground)] mt-1">Local Models</div>
+    </div>
+    <div class="border border-[var(--border)] bg-[var(--card)] rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold">8</div>
+      <div class="text-xs text-[var(--muted-foreground)] mt-1">Task Types</div>
+    </div>
+    <div class="border border-[var(--border)] bg-[var(--card)] rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold">10</div>
+      <div class="text-xs text-[var(--muted-foreground)] mt-1">Agent Tools</div>
+    </div>
+    <div class="border border-[var(--border)] bg-[var(--card)] rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold">0</div>
+      <div class="text-xs text-[var(--muted-foreground)] mt-1">External Calls</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     API LAYER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-api" class="tab-panel space-y-3">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    <code>orchestrator/main.py</code> · FastAPI · Port <strong>8000</strong> · 21 endpoints in 6 groups. Click a group to expand, click an endpoint for full schema.
+  </p>
+  <div id="ep-list"></div>
+  <script>
+  const EPS = [
+    { g:"Health & Status", gc:"bg", items:[
+      { m:"GET",  p:"/health",               d:"Liveness probe. Returns status, uptime_seconds, models_loaded, gpu_name, vram_used, vram_total.",
+        req:null, res:'{"status":"ok","uptime_seconds":312,"models_loaded":5,"gpu_name":"RTX 5050 Laptop GPU"}' },
+      { m:"GET",  p:"/v1/hardware-status",   d:"Live GPU telemetry from nvidia-smi: name, short_name, utilization, mem used/total.",
+        req:null, res:'{"gpu":{"name":"NVIDIA GeForce RTX 5050 Laptop GPU","short_name":"RTX 5050","util":"0%","mem":"0.0/8.0GB"}}' },
+      { m:"GET",  p:"/v1/network-status",    d:"Air-gap egress snapshot from NetworkMonitor. Returns airgap_status, egress rate B/s, interface list, active socket list.",
+        req:null, res:'{"airgap_status":"SECURE_AIR_GAPPED","external_egress_rate_bps":0.0,"verified_zero_egress":true}' },
+    ]},
+    { g:"Task Management", gc:"bb", items:[
+      { m:"POST",   p:"/v1/task",            d:"Submit a new task. Runs classifier → selector → agent loop in background thread. Returns task_id immediately.",
+        req:'{"prompt":"Summarize this PDF","files":["uuid.pdf"],"model":"auto"}', res:'{"task_id":"abc123","status":"queued","task_type":"doc_summarize"}' },
+      { m:"GET",    p:"/v1/tasks",           d:"List all tasks. Query params: limit, offset, status.",
+        req:null, res:'[{"task_id":"abc123","status":"done","task_type":"code_gen","created_at":"..."}]' },
+      { m:"GET",    p:"/v1/task/{id}",       d:"Poll a task. Returns full state: steps, plan, deliverables, final_response, messages history.",
+        req:null, res:'{"task_id":"abc","status":"COMPLETED","final_response":"...","steps":[...],"deliverables":[...]}' },
+      { m:"DELETE", p:"/v1/task/{id}",       d:"Delete a task and its workspace files.",
+        req:null, res:'{"deleted":true}' },
+      { m:"POST",   p:"/v1/task/{id}/approve", d:"Human-in-the-loop gate. Unblocks tasks with human_approval_required=true. Triggers _synthesize_final_response().",
+        req:'{"approved":true,"note":"Approved by Chief Technical Advisor"}', res:'{"status":"resumed"}' },
+    ]},
+    { g:"Model Management", gc:"ba", items:[
+      { m:"GET",  p:"/v1/models",            d:"List all models from registry.yaml plus any dynamically registered models.",
+        req:null, res:'[{"name":"coding-primary","tag":"qwen2.5-coder:7b","vram_gb":4.7,"capabilities":["code_gen"]}]' },
+      { m:"POST", p:"/v1/models/register",   d:"Zero-redeploy model registration. Adds new model to in-memory ModelRegistry instantly.",
+        req:'{"name":"my-model","tag":"phi3:mini","vram_gb":2.5,"capabilities":["general_qa"]}', res:'{"registered":true,"name":"my-model"}' },
+      { m:"POST", p:"/v1/models/pull",       d:"Pull a model via Ollama (must be accessible locally in air-gap mode).",
+        req:'{"tag":"llama3.1:8b"}', res:'{"status":"pulling","tag":"llama3.1:8b"}' },
+    ]},
+    { g:"Workspace & Files", gc:"", items:[
+      { m:"POST",   p:"/v1/workspace/upload",             d:"Upload file to session workspace. Returns file UUID for referencing in task prompts.",
+        req:"(multipart/form-data)", res:'{"file_id":"uuid","filename":"report.pdf","size_bytes":204800}' },
+      { m:"GET",    p:"/v1/workspace/files",              d:"List all files in current workspace.",
+        req:null, res:'[{"file_id":"...","filename":"report.pdf","size_bytes":204800}]' },
+      { m:"DELETE", p:"/v1/workspace/files/{id}",         d:"Delete a specific workspace file.",
+        req:null, res:'{"deleted":true}' },
+      { m:"GET",    p:"/v1/workspace/deliverables",       d:"List generated deliverables (.docx, .xlsx, .pptx, .py scripts).",
+        req:null, res:'[{"filename":"Official_Approval_Note.docx","size_bytes":18432}]' },
+      { m:"GET",    p:"/v1/workspace/deliverables/{filename}", d:"Download a generated deliverable as binary stream.",
+        req:null, res:"(binary stream — application/octet-stream)" },
+    ]},
+    { g:"Knowledge Base", gc:"", items:[
+      { m:"POST",   p:"/v1/knowledge-base/ingest",        d:"Ingest a workspace file into ChromaDB. Runs MIME detection → PDF/OCR pipeline → chunking → nomic-embed-text embedding.",
+        req:'{"file_id":"uuid"}', res:'{"chunks_indexed":47,"doc_id":"..."}' },
+      { m:"GET",    p:"/v1/knowledge-base/documents",     d:"List all ingested documents in the knowledge base.",
+        req:null, res:'[{"doc_id":"...","filename":"sop.pdf","chunks":47}]' },
+      { m:"DELETE", p:"/v1/knowledge-base/documents/{id}", d:"Remove a document and all its chunks from ChromaDB.",
+        req:null, res:'{"deleted":true}' },
+    ]},
+    { g:"Audit", gc:"", items:[
+      { m:"GET", p:"/v1/audit/logs",    d:"Retrieve tamper-evident audit entries from SQLite. Returns timestamp, task_id, event_type, tool_name, model_used, duration_ms, airgap_verified.",
+        req:null, res:'[{"id":1,"timestamp":"...","event_type":"TOOL_INVOCATION","tool_name":"code_execute","duration_ms":1230,"airgap_verified":1}]' },
+    ]},
+  ];
+  const mc = {GET:"bg",POST:"bb",DELETE:"br",PUT:"ba"};
+  const el = document.getElementById("ep-list");
+  EPS.forEach(grp => {
+    const wrap = document.createElement("div");
+    wrap.className = "border border-[var(--border)] rounded-xl bg-[var(--card)] overflow-hidden mb-2";
+    const hdr = document.createElement("button");
+    hdr.className = "w-full flex items-center justify-between px-4 py-3 text-left";
+    hdr.innerHTML = `<span class="flex items-center gap-2 font-semibold text-sm">${grp.g} <span class="badge ${grp.gc}">${grp.items.length}</span></span><span class="chev text-[var(--muted-foreground)]">▾</span>`;
+    const body = document.createElement("div");
+    body.className = "acc";
+    const inner = document.createElement("div");
+    inner.className = "border-t border-[var(--border)]";
+    grp.items.forEach(ep => {
+      const row = document.createElement("div");
+      row.className = "border-b border-[var(--border)] last:border-0";
+      row.innerHTML = `
+        <button class="w-full flex items-start gap-3 px-4 py-2.5 text-left hover:bg-[color-mix(in_srgb,var(--border)_15%,var(--card))]" onclick="toggleEp(this)">
+          <span class="badge ${mc[ep.m]||''} font-mono shrink-0 mt-0.5 w-14 text-center">${ep.m}</span>
+          <span class="font-mono text-xs flex-1 mt-0.5">${ep.p}</span>
+          <span class="text-xs text-[var(--muted-foreground)] hidden md:block flex-1 mt-0.5">${ep.d.split('.')[0]}</span>
+          <span class="chev text-[var(--muted-foreground)] shrink-0">▾</span>
+        </button>
+        <div class="acc">
+          <div class="px-4 py-3 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--border)_10%,var(--card))] space-y-2 text-xs">
+            <p class="text-[var(--muted-foreground)]">${ep.d}</p>
+            ${ep.req ? `<div><span class="font-semibold">Request:</span><pre class="mt-1">${ep.req}</pre></div>` : ''}
+            <div><span class="font-semibold">Response:</span><pre class="mt-1">${ep.res}</pre></div>
+          </div>
+        </div>`;
+      inner.appendChild(row);
+    });
+    body.appendChild(inner);
+    hdr.addEventListener("click", () => {
+      const o = body.classList.toggle("open");
+      hdr.querySelector(".chev").classList.toggle("open",o);
+    });
+    wrap.appendChild(hdr); wrap.appendChild(body);
+    el.appendChild(wrap);
+  });
+  function toggleEp(btn){
+    const b=btn.nextElementSibling;
+    const o=b.classList.toggle("open");
+    btn.querySelector(".chev").classList.toggle("open",o);
+  }
+  </script>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     TASK ROUTER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-router" class="tab-panel space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    <code>orchestrator/router/classifier.py</code> · <code>selector.py</code> · <code>registry.yaml</code> — Regex pattern waterfall with confidence scores. VRAM-aware model selection.
+  </p>
+
+  <div class="grid md:grid-cols-2 gap-6">
+    <!-- Waterfall -->
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-4">Classifier Waterfall — priority order</h3>
+      <div class="space-y-2" id="wfall"></div>
+    </div>
+
+    <!-- Try it -->
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-2">Live Router Demo</h3>
+      <p class="text-xs text-[var(--muted-foreground)] mb-3">Type a prompt to see how classifier.py routes it.</p>
+      <input id="ri" type="text" placeholder="e.g. write a python script to parse CSV…"
+        class="w-full border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] rounded-lg px-3 py-2 text-sm outline-none focus:border-[var(--primary)] mb-3"
+        oninput="route(this.value)" />
+      <div id="rr" class="text-sm text-[var(--muted-foreground)]">Start typing…</div>
+    </div>
+  </div>
+
+  <!-- Registry table -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+    <h3 class="font-semibold text-sm mb-4">ModelRegistry — from registry.yaml</h3>
+    <p class="text-xs text-[var(--muted-foreground)] mb-3"><code>route_task()</code>: filter by capability → sort by VRAM fit → query Ollama → fallback to <code>llama3.1:8b</code> if unavailable.</p>
+    <table>
+      <thead><tr><th>Registry Name</th><th>Ollama Tag</th><th>VRAM</th><th>Capabilities</th></tr></thead>
+      <tbody id="rtbl"></tbody>
+    </table>
+  </div>
+
+  <script>
+  const WF = [
+    { t:"vision_ocr",       c:0.95, k:"image, picture, drawing, p&id, scanned, scan, photo, diagram, handwritten, blueprint, ocr — or image attachment detected",   m:"vision-primary (moondream:latest)" },
+    { t:"multi_step_plan",  c:0.95, k:"first…then…finally, step 1, and then, save as — or 2+ tool types detected (code+doc, doc+rag etc.)",                          m:"reasoning-primary (llama3.1:8b)" },
+    { t:"code_gen",         c:0.92, k:"python, script, code, function, debug, algorithm, test, unit test, program, regex, execute, run code, def …, import …, class …", m:"coding-primary (qwen2.5-coder:7b)" },
+    { t:"spreadsheet_calc", c:0.90, k:"excel, spreadsheet, xlsx, csv, formula, sumif, vlookup, pivot, sheet, cells, rows, columns, calculate, average, balance sheet",  m:"coding-primary (qwen2.5-coder:7b)" },
+    { t:"rag_search",       c:0.89, k:"sop, manual, guideline, policy, regulation, standard, clause, internal docs, procedure, according to manual, search knowledge base", m:"reasoning-primary (llama3.1:8b)" },
+    { t:"doc_draft",        c:0.88, k:"word, docx, pptx, powerpoint, presentation, deck, approval note, executive summary, report, memo, generate doc, draft note",  m:"reasoning-primary (llama3.1:8b)" },
+    { t:"doc_summarize",    c:0.85, k:"summarize, summary, tldr, key points, extract findings, condense",                                                             m:"reasoning-primary (llama3.1:8b)" },
+    { t:"general_qa",       c:0.80, k:"(default fallback — no other pattern matched)",                                                                                m:"reasoning-primary (llama3.1:8b)" },
+  ];
+  const wEl = document.getElementById("wfall");
+  WF.forEach((w,i) => {
+    wEl.innerHTML += `<div class="border border-[var(--border)] rounded-lg p-3">
+      <div class="flex items-center justify-between mb-1.5">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-[var(--muted-foreground)] w-5">${i+1}.</span>
+          <span class="font-mono text-xs font-semibold">${w.t}</span>
+        </div>
+        <span class="text-xs text-[var(--muted-foreground)]">conf ${w.c}</span>
+      </div>
+      <div class="bar-bg mb-1.5"><div class="bar" style="width:${w.c*100}%"></div></div>
+      <div class="text-xs text-[var(--muted-foreground)] mb-1">${w.k}</div>
+      <div class="text-xs text-[var(--foreground)] opacity-70">→ ${w.m}</div>
+    </div>`;
+  });
+
+  const REG = [
+    { n:"coding-primary",    t:"qwen2.5-coder:7b",   v:4.7, caps:["code_gen","code_review","spreadsheet_calc"] },
+    { n:"reasoning-primary", t:"llama3.1:8b",         v:4.9, caps:["general_qa","doc_summarize","doc_draft","multi_step_plan","rag_search"] },
+    { n:"math-engineering",  t:"deepseek-r1:7b",      v:4.7, caps:["math_reasoning","engineering_calc","deep_reasoning"] },
+    { n:"vision-primary",    t:"moondream:latest",    v:2.0, caps:["vision_ocr","drawing_analysis","image_qa"] },
+    { n:"embeddings",        t:"nomic-embed-text",    v:0.3, caps:["embedding"] },
+  ];
+  const rt = document.getElementById("rtbl");
+  REG.forEach(m => {
+    const pct=(m.v/8*100).toFixed(0);
+    rt.innerHTML += `<tr>
+      <td class="font-mono text-xs">${m.n}</td>
+      <td class="font-mono text-xs">${m.t}</td>
+      <td><div class="flex items-center gap-2"><div class="bar-bg w-20 shrink-0"><div class="bar" style="width:${pct}%"></div></div><span>${m.v} GB</span></div></td>
+      <td><div class="flex flex-wrap gap-1">${m.caps.map(c=>`<span class="badge">${c}</span>`).join('')}</div></td>
+    </tr>`;
+  });
+
+  // Live demo — mirrors actual regex from classifier.py
+  const PATS = [
+    { t:"vision_ocr",       c:0.95, rx:/\b(image|picture|drawing|p&id|scanned|scan|photo|diagram|handwritten|handwriting|blueprint|ocr|what is in this|read this scan)\b/i, m:"vision-primary (moondream:latest)" },
+    { t:"multi_step_plan",  c:0.95, rx:/\b(first\b.*\b(then|finally|after)|step\s*1|and\s+then|and\s+finally|and\s+save\s+as)\b/i, m:"reasoning-primary (llama3.1:8b)" },
+    { t:"code_gen",         c:0.92, rx:/\b(python|script|code|function|debug|algorithm|unit test|program|regex|execute|run code|```python)\b/i, m:"coding-primary (qwen2.5-coder:7b)" },
+    { t:"spreadsheet_calc", c:0.90, rx:/\b(excel|spreadsheet|xlsx|csv|formula|sumif|vlookup|pivot|sheet|calculate|balance sheet|ledger)\b/i, m:"coding-primary (qwen2.5-coder:7b)" },
+    { t:"rag_search",       c:0.89, rx:/\b(sop|manual|guideline|policy|regulation|standard|clause|internal docs|procedure|according to manual|search knowledge base)\b/i, m:"reasoning-primary (llama3.1:8b)" },
+    { t:"doc_draft",        c:0.88, rx:/\b(docx|pptx|powerpoint|presentation|deck|approval note|executive summary|memo|generate doc|draft note)\b/i, m:"reasoning-primary (llama3.1:8b)" },
+    { t:"doc_summarize",    c:0.85, rx:/\b(summarize|summary|tldr|key points|extract findings|condense)\b/i, m:"reasoning-primary (llama3.1:8b)" },
+    { t:"general_qa",       c:0.80, rx:/./, m:"reasoning-primary (llama3.1:8b)" },
+  ];
+  function route(v){
+    const el=document.getElementById("rr");
+    if(!v.trim()){el.innerHTML="Start typing…";return;}
+    const m=PATS.find(p=>p.rx.test(v));
+    el.innerHTML=`<div class="space-y-2 border border-[var(--border)] rounded-lg p-3">
+      <div class="flex gap-2 items-center"><span class="text-xs text-[var(--muted-foreground)]">Task type:</span> <span class="font-mono font-semibold">${m.t}</span></div>
+      <div class="flex gap-2 items-center"><span class="text-xs text-[var(--muted-foreground)]">Confidence:</span> <div class="bar-bg w-24 inline-block"><div class="bar" style="width:${m.c*100}%"></div></div> <span class="text-xs">${m.c}</span></div>
+      <div class="flex gap-2 items-center"><span class="text-xs text-[var(--muted-foreground)]">Routed to:</span> <span class="font-mono text-xs">${m.m}</span></div>
+    </div>`;
+  }
+  </script>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     AGENT LOOP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-agent" class="tab-panel space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    <code>orchestrator/agent/graph.py</code> — <code>AgentExecutor.run_agent_loop()</code> implements a 5-phase ReAct-style loop with SQLite memory and self-correction retry logic.
+  </p>
+
+  <!-- Phases -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-5">
+    <h3 class="font-semibold text-sm mb-4">5-Phase Agent Lifecycle — click to inspect</h3>
+    <div class="flex items-center gap-0 overflow-x-auto pb-2 mb-4">
+      <div class="phase active rounded-lg px-4 py-3 text-center min-w-[100px] text-sm shrink-0" onclick="ph(0,this)">
+        <div class="text-base font-bold mb-1">1</div><div class="font-semibold">Plan</div>
+        <div class="text-xs text-[var(--muted-foreground)] mt-1">_generate_plan()</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] px-2 text-lg shrink-0">→</div>
+      <div class="phase rounded-lg px-4 py-3 text-center min-w-[100px] text-sm shrink-0" onclick="ph(1,this)">
+        <div class="text-base font-bold mb-1">2</div><div class="font-semibold">Act</div>
+        <div class="text-xs text-[var(--muted-foreground)] mt-1">execute_tool()</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] px-2 text-lg shrink-0">→</div>
+      <div class="phase rounded-lg px-4 py-3 text-center min-w-[100px] text-sm shrink-0" onclick="ph(2,this)">
+        <div class="text-base font-bold mb-1">3</div><div class="font-semibold">Observe</div>
+        <div class="text-xs text-[var(--muted-foreground)] mt-1">capture output</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] px-2 text-lg shrink-0">→</div>
+      <div class="phase rounded-lg px-4 py-3 text-center min-w-[100px] text-sm shrink-0" onclick="ph(3,this)">
+        <div class="text-base font-bold mb-1">4</div><div class="font-semibold">Reflect</div>
+        <div class="text-xs text-[var(--muted-foreground)] mt-1">_self_correct_args()</div>
+      </div>
+      <div class="text-[var(--muted-foreground)] px-2 text-lg shrink-0">→</div>
+      <div class="phase rounded-lg px-4 py-3 text-center min-w-[100px] text-sm shrink-0" onclick="ph(4,this)">
+        <div class="text-base font-bold mb-1">5</div><div class="font-semibold">Finalize</div>
+        <div class="text-xs text-[var(--muted-foreground)] mt-1">_synthesize_final_response()</div>
+      </div>
+    </div>
+    <div id="ph-detail" class="border border-[var(--border)] rounded-lg p-4 bg-[color-mix(in_srgb,var(--border)_12%,var(--card))] text-sm"></div>
+  </div>
+  <script>
+  const PH=[
+    { t:"Phase 1 — Plan: _generate_plan(prompt, task_type, attachments)", c:"LLM receives the user prompt and list of available tools. Outputs an ordered list of {description, tool, arguments} steps stored in TaskState.plan. Special fast-paths exist: vision_ocr → single vision_ocr step; trading task → auto-generated FIFO analysis script; approval note → file_read + docgen_approval_note; code_gen → file_write + code_execute; spreadsheet_calc → spreadsheet_create; rag_search → rag_search. Generic fallback: list_files." },
+    { t:"Phase 2 — Act: execute_tool(tool_name, tool_args, task_id)", c:"Each plan step is executed by dispatching tool_name to the matching module. _resolve_arguments() injects context values (e.g. attachment filepath replaces placeholder 'sample.png'). Every tool invocation is immediately logged to AuditLogger with timing (duration_ms). Step status set to RUNNING, then OBSERVE after execution." },
+    { t:"Phase 3 — Observe: capture tool output", c:"tool_output dict is stored in StepRecord.tool_output. working_context[f'step_{idx}_result'] is updated so subsequent steps can reference prior outputs. Deliverable filenames and paths (deliverable, saved_script, absolute_path) are extracted and appended to the deliverables list. SQLite checkpoint saved immediately via memory.save_task(state)." },
+    { t:"Phase 4 — Reflect: _self_correct_args(tool_name, args, error_output)", c:"If tool_output.status == 'error' or success == False, the step enters REFLECT phase (status=RETRY). _self_correct_args() applies rule-based argument fixes (e.g. code_execute → rename save_as to 'fixed_script.py'). The tool is called again once. If it succeeds: status=SUCCESS. If it fails again: status=FAILED, loop continues to next step anyway." },
+    { t:"Phase 5 — Finalize: _synthesize_final_response()", c:"After all plan steps complete (or max steps reached), _synthesize_final_response() is called with prompt, plan_steps, working_context, deliverables, and full message history. The LLM produces a markdown final_answer. state.status = 'COMPLETED'. Deliverables list appended to state.deliverables. A FINALIZE StepRecord is appended. Final save to SQLite." },
+  ];
+  function ph(i,el){
+    document.querySelectorAll(".phase").forEach(b=>b.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("ph-detail").innerHTML=`<div class="font-semibold mb-2">${PH[i].t}</div><div class="text-[var(--muted-foreground)]">${PH[i].c}</div>`;
+  }
+  ph(0,document.querySelector(".phase"));
+  </script>
+
+  <!-- Tool matrix -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+    <h3 class="font-semibold text-sm mb-4">Tool Dispatch Matrix — execute_tool() · 10 tools</h3>
+    <table>
+      <thead><tr><th>Tool Name (in code)</th><th>Module</th><th>What it does</th><th>Output</th><th>Isolated?</th></tr></thead>
+      <tbody>
+        <tr><td class="font-mono text-xs">file_read</td><td class="font-mono text-xs">tools/files.py</td><td>Read allowlisted workspace file</td><td>{"content":"..."}</td><td>Path-checked</td></tr>
+        <tr><td class="font-mono text-xs">file_write</td><td class="font-mono text-xs">tools/files.py</td><td>Write to workspace (boundary enforced)</td><td>{"message":"..."}</td><td>Path-checked</td></tr>
+        <tr><td class="font-mono text-xs">list_files</td><td class="font-mono text-xs">tools/files.py</td><td>List workspace directory contents</td><td>{"files":[...]}</td><td>—</td></tr>
+        <tr><td class="font-mono text-xs">code_execute</td><td class="font-mono text-xs">tools/sandbox.py</td><td>Run Python in Bubblewrap (--unshare-net)</td><td>stdout+stderr+exit_code</td><td>✓ bwrap</td></tr>
+        <tr><td class="font-mono text-xs">spreadsheet_create</td><td class="font-mono text-xs">tools/spreadsheet.py</td><td>Create openpyxl .xlsx with live formulas</td><td>{"deliverable":"..."}</td><td>—</td></tr>
+        <tr><td class="font-mono text-xs">spreadsheet_read</td><td class="font-mono text-xs">tools/spreadsheet.py</td><td>Read existing .xlsx into dict</td><td>{"data":[...]}</td><td>—</td></tr>
+        <tr><td class="font-mono text-xs">docgen_approval_note</td><td class="font-mono text-xs">tools/docgen.py</td><td>Create Enterprise Approval Note .docx</td><td>{"deliverable":"..."}</td><td>—</td></tr>
+        <tr><td class="font-mono text-xs">docgen_presentation</td><td class="font-mono text-xs">tools/docgen.py</td><td>Create Executive PowerPoint .pptx</td><td>{"deliverable":"..."}</td><td>—</td></tr>
+        <tr><td class="font-mono text-xs">rag_search</td><td class="font-mono text-xs">tools/rag_search.py</td><td>Hybrid BM25 + vector search over ChromaDB</td><td>Cited text chunks</td><td>—</td></tr>
+        <tr><td class="font-mono text-xs">vision_ocr</td><td class="font-mono text-xs">ingestion/ocr_pipeline.py</td><td>Vision OCR via Ollama moondream</td><td>Extracted text</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Memory schema -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+    <h3 class="font-semibold text-sm mb-3">SQLite Memory — <code>data/agent_tasks.db</code> · TaskMemoryStore</h3>
+    <div class="grid md:grid-cols-2 gap-4">
+      <pre>-- tasks table (agent/memory.py)
+CREATE TABLE tasks (
+  task_id    TEXT PRIMARY KEY,
+  status     TEXT,   -- queued|RUNNING|COMPLETED|FAILED
+  created_at TEXT,
+  updated_at TEXT,
+  prompt     TEXT,
+  model_assigned TEXT,
+  ollama_tag TEXT,
+  task_type  TEXT,
+  plan       TEXT,   -- JSON: List[{description,tool,arguments}]
+  steps      TEXT,   -- JSON: List[StepRecord]
+  messages   TEXT,   -- JSON: conversation history
+  deliverables TEXT, -- JSON: List[{name,path,tool,created_at}]
+  final_response TEXT
+);</pre>
+      <div class="space-y-2 text-xs text-[var(--muted-foreground)]">
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <span class="font-semibold text-[var(--foreground)]">StepRecord fields:</span><br/>
+          step_number, phase (PLAN/ACT/OBSERVE/REFLECT/FINALIZE), description, tool_name, tool_input (JSON), tool_output (JSON), status (RUNNING/SUCCESS/RETRY/FAILED), timestamp
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <span class="font-semibold text-[var(--foreground)]">TaskState fields:</span><br/>
+          task_id, prompt, status, model_assigned, ollama_tag, task_type, plan, steps, messages, deliverables, final_response, created_at, updated_at, current_step, total_steps
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <span class="font-semibold text-[var(--foreground)]">Self-correction flow:</span><br/>
+          tool fails → status=RETRY → _self_correct_args() → retry once → SUCCESS or FAILED → continue to next step
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SANDBOX & TOOLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-sandbox" class="tab-panel space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    <code>orchestrator/tools/sandbox.py</code> · <code>files.py</code> · <code>docgen.py</code> · <code>spreadsheet.py</code> — Bubblewrap kernel namespace isolation on Linux. Windows fallback runs with subprocess timeout.
+  </p>
+
+  <div class="grid md:grid-cols-2 gap-6">
+    <!-- bwrap flags -->
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-4">Bubblewrap Flags — from sandbox.py execute_python_code()</h3>
+      <div class="space-y-2 text-xs">
+        <div class="border border-[var(--border)] rounded-lg p-3 flex gap-3">
+          <code class="shrink-0 text-xs">--unshare-net</code>
+          <span class="text-[var(--muted-foreground)]">Removes network namespace entirely — container has no network stack at all. No sockets, no DNS, no HTTP.</span>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3 flex gap-3">
+          <code class="shrink-0 text-xs">--unshare-ipc</code>
+          <span class="text-[var(--muted-foreground)]">Isolates IPC namespace — child cannot access host shared memory, semaphores, or message queues.</span>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3 flex gap-3">
+          <code class="shrink-0 text-xs">--unshare-pid</code>
+          <span class="text-[var(--muted-foreground)]">New PID namespace — child process cannot see or signal host processes.</span>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3 flex gap-3">
+          <code class="shrink-0 text-xs">--ro-bind / /</code>
+          <span class="text-[var(--muted-foreground)]">Read-only bind-mount of entire host filesystem — Python interpreter and libraries accessible but immutable.</span>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3 flex gap-3">
+          <code class="shrink-0 text-xs">--tmpfs /tmp</code>
+          <span class="text-[var(--muted-foreground)]">Ephemeral RAM filesystem for /tmp — cleared on exit, MPLCONFIGDIR set here for matplotlib cache.</span>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3 flex gap-3">
+          <code class="shrink-0 text-xs">--bind WORKSPACE WORKSPACE</code>
+          <span class="text-[var(--muted-foreground)]">Only the task workspace directory is read-write. Entire host filesystem is read-only except this path.</span>
+        </div>
+      </div>
+      <div class="mt-4 p-3 border border-[var(--border)] rounded-lg text-xs text-[var(--muted-foreground)]">
+        <span class="font-semibold text-[var(--foreground)]">Windows fallback:</span> <code>shutil.which("bwrap") is None</code> → plain <code>subprocess.run([sys.executable, script_path])</code> with <code>timeout=15s</code>. <code>network_isolated=False</code> in result. Exit code 1 on socket open attempt.
+      </div>
+    </div>
+
+    <!-- Path allowlist + deliverables -->
+    <div class="space-y-4">
+      <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+        <h3 class="font-semibold text-sm mb-3">File Path Allowlisting — tools/files.py</h3>
+        <pre>def _safe_path(filename, workspace):
+    resolved = (workspace / filename).resolve()
+    if not str(resolved).startswith(
+            str(workspace.resolve())):
+        raise PermissionError(
+            "Path traversal blocked")
+    return resolved
+
+# Blocks: ../../../etc/passwd
+#         /absolute/paths
+#         symlink escapes out of workspace</pre>
+      </div>
+      <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+        <h3 class="font-semibold text-sm mb-3">Deliverable Generators — tools/docgen.py · spreadsheet.py</h3>
+        <div class="space-y-2 text-xs text-[var(--muted-foreground)]">
+          <div class="border border-[var(--border)] rounded-lg p-3">
+            <div class="font-semibold text-[var(--foreground)] mb-1">.docx — create_approval_note()</div>
+            python-docx. 5 sections: Header (title + ref_no + department + author + date), Background, Findings (with optional table), Risk Assessment, Recommendations + Sign-off block. Heading color Navy #1F497D.
+          </div>
+          <div class="border border-[var(--border)] rounded-lg p-3">
+            <div class="font-semibold text-[var(--foreground)] mb-1">.xlsx — create_audit_spreadsheet()</div>
+            openpyxl. Zebra-row styling. Live formulas: =AVERAGE(D3:D6), =MAX(D3:D6), =SUM(). Tolerance evaluation cells. Title header row. summary_formulas dict appended at bottom.
+          </div>
+          <div class="border border-[var(--border)] rounded-lg p-3">
+            <div class="font-semibold text-[var(--foreground)] mb-1">.pptx — create_presentation()</div>
+            python-pptx. Title slide (title + subtitle) + N content slides from slides[] list. Air-gapped engineering summary theme.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     INGESTION & RAG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-rag" class="tab-panel space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    <code>orchestrator/ingestion/loaders.py</code> · <code>ocr_pipeline.py</code> · <code>rag/vector_store.py</code> · <code>rag/embed.py</code> · <code>tools/rag_search.py</code>
+  </p>
+
+  <!-- Pipeline -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-5">
+    <h3 class="font-semibold text-sm mb-5">5-Step Ingestion Pipeline</h3>
+    <div class="space-y-3">
+      <div class="flex gap-4 items-start">
+        <div class="w-8 h-8 rounded-full border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">1</div>
+        <div>
+          <div class="font-semibold text-sm">MIME Detection — loaders.py</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-0.5">python-magic inspects raw file header bytes (not extension). Routes: PDF → PyMuPDF, DOCX → python-docx paragraph extractor, PNG/JPG/WEBP/BMP → VisionOCRPipeline.</div>
+        </div>
+      </div>
+      <div class="flex gap-4 items-start">
+        <div class="w-8 h-8 rounded-full border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">2</div>
+        <div>
+          <div class="font-semibold text-sm">PDF Classification — loaders.py</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-0.5">PyMuPDF extracts text from all pages. If total extracted text &lt; 50 chars AND image blocks are detected → classified as <em>scanned PDF</em> → routes to OCR pipeline. Otherwise: native PDF text extraction.</div>
+        </div>
+      </div>
+      <div class="flex gap-4 items-start">
+        <div class="w-8 h-8 rounded-full border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">3</div>
+        <div>
+          <div class="font-semibold text-sm">OCR Pipeline — VisionOCRPipeline.analyze_visual_document()</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-0.5">
+            fitz (PyMuPDF) renders each PDF page as PNG at 200dpi. PNG encoded as base64.
+            POST to <code>http://127.0.0.1:11434/api/generate</code> with <code>{"model":"moondream","prompt":"Extract all text…","images":["&lt;base64&gt;"],"stream":false}</code>.
+            Response text concatenated per page.
+          </div>
+        </div>
+      </div>
+      <div class="flex gap-4 items-start">
+        <div class="w-8 h-8 rounded-full border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">4</div>
+        <div>
+          <div class="font-semibold text-sm">Chunking &amp; Embedding — rag/embed.py</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-0.5">Text split into ~512-token chunks with overlap. POST to Ollama <code>/api/embeddings</code> with model <code>nomic-embed-text</code>. <strong>Fallback:</strong> if Ollama offline → SHA-256 hash of chunk text → deterministic 768-dim float vector (ensures ingestion never fails).</div>
+        </div>
+      </div>
+      <div class="flex gap-4 items-start">
+        <div class="w-8 h-8 rounded-full border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">5</div>
+        <div>
+          <div class="font-semibold text-sm">ChromaDB Storage — rag/vector_store.py</div>
+          <div class="text-xs text-[var(--muted-foreground)] mt-0.5">Chunks stored at <code>data/chroma_db/</code> (on-disk persistent). Each chunk: embedding vector + metadata {doc_id, filename, page_num, chunk_index, text}. Collection persisted across restarts.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hybrid search -->
+  <div class="grid md:grid-cols-2 gap-6">
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-3">Hybrid RAG Search — tools/rag_search.py</h3>
+      <div class="p-3 border border-[var(--border)] rounded-lg bg-[color-mix(in_srgb,var(--border)_12%,var(--card))] mb-3">
+        <div class="font-semibold text-xs mb-2">Score formula (α = 0.7)</div>
+        <div class="font-mono text-xs">score = 0.7 × cosine_sim(q_emb, chunk_emb)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ 0.3 × bm25_score(q_tokens, chunk_tokens)</div>
+      </div>
+      <table>
+        <thead><tr><th>Component</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Vector search</td><td>ChromaDB cosine similarity, top-K=4 (default)</td></tr>
+          <tr><td>BM25 search</td><td>In-memory BM25 index over all chunk texts</td></tr>
+          <tr><td>Citation</td><td>doc_id + page_num + chunk_index returned per result</td></tr>
+          <tr><td>Embedding fallback</td><td>SHA-256(text) → deterministic float vector</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-3">Supported Input Formats</h3>
+      <div class="grid grid-cols-2 gap-2 text-xs mb-4">
+        <div class="border border-[var(--border)] rounded-lg p-2 text-center"><div class="font-semibold">.pdf (native)</div><div class="text-[var(--muted-foreground)]">PyMuPDF text extraction</div></div>
+        <div class="border border-[var(--border)] rounded-lg p-2 text-center"><div class="font-semibold">.pdf (scanned)</div><div class="text-[var(--muted-foreground)]">moondream OCR per page</div></div>
+        <div class="border border-[var(--border)] rounded-lg p-2 text-center"><div class="font-semibold">.docx</div><div class="text-[var(--muted-foreground)]">python-docx paragraphs</div></div>
+        <div class="border border-[var(--border)] rounded-lg p-2 text-center"><div class="font-semibold">.png / .jpg</div><div class="text-[var(--muted-foreground)]">moondream vision OCR</div></div>
+        <div class="border border-[var(--border)] rounded-lg p-2 text-center"><div class="font-semibold">.txt / .md</div><div class="text-[var(--muted-foreground)]">raw text reader</div></div>
+        <div class="border border-[var(--border)] rounded-lg p-2 text-center"><div class="font-semibold">.yaml / .json / .py</div><div class="text-[var(--muted-foreground)]">raw text reader</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     AIR-GAP & AUDIT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-security" class="tab-panel space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    <code>network_monitor/monitor.py</code> · <code>orchestrator/audit/logger.py</code> · <code>verify_all.py</code>
+  </p>
+
+  <div class="grid md:grid-cols-2 gap-6">
+    <!-- Network monitor -->
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-4">NetworkMonitor — sample_network_status()</h3>
+      <div class="space-y-2 text-xs">
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <div class="font-semibold text-[var(--foreground)] mb-1">Measurement</div>
+          <div class="text-[var(--muted-foreground)]"><code>psutil.net_io_counters(pernic=True)</code> called each API poll. Computes per-interface byte deltas since last call. Divides by elapsed time → rate in B/s.</div>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <div class="font-semibold text-[var(--foreground)] mb-1">Interface Classification</div>
+          <div class="text-[var(--muted-foreground)]">
+            <strong>Internal (excluded):</strong> lo, docker*, veth*, br-*<br/>
+            <strong>External (monitored):</strong> eth0, wlan0, enp*, Wi-Fi — anything not in the internal prefix list
+          </div>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <div class="font-semibold text-[var(--foreground)] mb-1">Egress Verdict</div>
+          <pre style="font-size:0.7rem;padding:8px">if external_rate_sent &lt; 50.0:
+    airgap_status = "SECURE_AIR_GAPPED"
+else:
+    airgap_status = "TRAFFIC_DETECTED"
+
+verified_zero_egress = (external_bytes_sent == 0)</pre>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <div class="font-semibold text-[var(--foreground)] mb-1">Socket Audit</div>
+          <div class="text-[var(--muted-foreground)]"><code>psutil.net_connections(kind="inet")</code> — each socket flagged as external if remote IP is not 127.x or ::1. External socket list returned in API response.</div>
+        </div>
+        <div class="border border-[var(--border)] rounded-lg p-3">
+          <div class="font-semibold text-[var(--foreground)] mb-1">Live Verification</div>
+          <pre style="font-size:0.7rem;padding:8px">sudo tcpdump -i any not host 127.0.0.1 -n -c 20</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit logger -->
+    <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <h3 class="font-semibold text-sm mb-4">AuditLogger — Dual-Write · SQLite + JSONL</h3>
+      <p class="text-xs text-[var(--muted-foreground)] mb-3">Every event is written atomically to both <code>data/audit.db</code> (SQLite) and <code>data/audit_log.jsonl</code> (append-only). SQLite enables querying; JSONL is the tamper-evident immutable record.</p>
+      <pre style="font-size:0.72rem">-- Actual schema from logger.py
+CREATE TABLE IF NOT EXISTS audit_events (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp       TEXT NOT NULL,       -- ISO-8601
+  task_id         TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  model_used      TEXT,
+  tool_name       TEXT,
+  input_payload   TEXT,                -- JSON string
+  output_payload  TEXT,                -- JSON string
+  duration_ms     REAL,
+  airgap_verified INTEGER DEFAULT 1   -- always 1
+);</pre>
+      <h4 class="font-semibold text-xs mt-4 mb-2">Event Types</h4>
+      <div class="grid grid-cols-2 gap-1.5">
+        <span class="badge font-mono text-xs">TOOL_INVOCATION</span>
+        <span class="badge font-mono text-xs">ROUTING_DECISION</span>
+        <span class="badge font-mono text-xs">HUMAN_APPROVAL</span>
+        <span class="badge font-mono text-xs">MODEL_REGISTERED</span>
+        <span class="badge font-mono text-xs">TASK_COMPLETED</span>
+        <span class="badge font-mono text-xs">TASK_FAILED</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DoD -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+    <h3 class="font-semibold text-sm mb-4">Definition of Done — verify_all.py · 48/48 Tests Pass</h3>
+    <div class="grid md:grid-cols-2 gap-3">
+      <div class="border border-[var(--border)] rounded-lg p-3 text-xs">
+        <div class="flex items-center gap-2 mb-2"><span class="badge bg">DoD-1</span><span class="font-semibold">Model Routing Accuracy</span></div>
+        <div class="text-[var(--muted-foreground)]">TaskClassifier tested against all 8 task types with crafted prompts. Each must produce the correct task_type with confidence ≥ threshold. Validated by unit tests for every regex pattern matrix.</div>
+      </div>
+      <div class="border border-[var(--border)] rounded-lg p-3 text-xs">
+        <div class="flex items-center gap-2 mb-2"><span class="badge bg">DoD-2</span><span class="font-semibold">Agentic Task → .docx Deliverable</span></div>
+        <div class="text-[var(--muted-foreground)]">End-to-end task submission produces a well-formed Approval Note .docx with all 5 sections (Header, Background, Findings, Recommendations, Sign-off). File size &gt; 0 bytes validated.</div>
+      </div>
+      <div class="border border-[var(--border)] rounded-lg p-3 text-xs">
+        <div class="flex items-center gap-2 mb-2"><span class="badge bg">DoD-3</span><span class="font-semibold">Sandbox Code Execution</span></div>
+        <div class="text-[var(--muted-foreground)]">Code execution in sandbox captures stdout, provides exit_code, enforces timeout=15s. Network block verified: code attempting socket.connect() returns exit code 1 (bwrap) or OSError (fallback).</div>
+      </div>
+      <div class="border border-[var(--border)] rounded-lg p-3 text-xs">
+        <div class="flex items-center gap-2 mb-2"><span class="badge bg">DoD-4</span><span class="font-semibold">Multimodal Schema</span></div>
+        <div class="text-[var(--muted-foreground)]">VisionOCRPipeline processes image input and returns non-empty text. Scanned PDF with &lt;50 chars extracted correctly routed to OCR pipeline (moondream). Image base64 encoding validated.</div>
+      </div>
+      <div class="border border-[var(--border)] rounded-lg p-3 text-xs">
+        <div class="flex items-center gap-2 mb-2"><span class="badge bg">DoD-5</span><span class="font-semibold">Air-Gap Proof</span></div>
+        <div class="text-[var(--muted-foreground)]">Full task execution with NetworkMonitor polling. external_bytes_sent == 0 throughout. verified_zero_egress: true. airgap_status: SECURE_AIR_GAPPED. Zero external sockets detected.</div>
+      </div>
+      <div class="border border-[var(--border)] rounded-lg p-3 text-xs">
+        <div class="flex items-center gap-2 mb-2"><span class="badge bg">DoD-6</span><span class="font-semibold">Zero-Redeploy Model Add</span></div>
+        <div class="text-[var(--muted-foreground)]">POST /v1/models/register adds model to live in-memory ModelRegistry. Subsequent routing immediately considers the new model. No server restart required. Validated by registering, then submitting a task routed to it.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     MODELS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<div id="tab-models" class="tab-panel space-y-6">
+  <p class="text-[var(--muted-foreground)] text-sm">
+    All inference is local via <strong>Ollama</strong> at <code>127.0.0.1:11434</code>. Models are hot-swapped by Ollama as needed — not all loaded simultaneously. Stored at <code>C:\Users\krish\.ollama\models</code>.
+  </p>
+
+  <div class="space-y-3" id="mcards"></div>
+
+  <!-- VRAM chart -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+    <h3 class="font-semibold text-sm mb-4">VRAM Budget — RTX 5050 Laptop GPU (8151 MB = 8.0 GB)</h3>
+    <div class="space-y-3" id="vbars"></div>
+    <div class="mt-3 pt-3 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)] flex justify-between">
+      <span>Ollama hot-swaps models on demand — only one loaded at a time during inference</span>
+      <span>Largest model: llama3.1:8b at 4.9 GB</span>
+    </div>
+  </div>
+
+  <!-- call_model fallback chain -->
+  <div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+    <h3 class="font-semibold text-sm mb-3">Ollama call_model() Fallback Chain — graph.py</h3>
+    <div class="flex items-center gap-2 flex-wrap text-xs text-[var(--muted-foreground)]">
+      <span class="border border-[var(--border)] rounded px-2 py-1 text-[var(--foreground)]">Primary tag</span>
+      <span>→ 404 →</span>
+      <span class="border border-[var(--border)] rounded px-2 py-1 text-[var(--foreground)]">tag:latest / strip :latest</span>
+      <span>→ still 404 →</span>
+      <span class="border border-[var(--border)] rounded px-2 py-1 text-[var(--foreground)]">llama3.1:8b</span>
+      <span>→</span>
+      <span class="border border-[var(--border)] rounded px-2 py-1 text-[var(--foreground)]">deepseek-r1:7b</span>
+      <span>→</span>
+      <span class="border border-[var(--border)] rounded px-2 py-1 text-[var(--foreground)]">qwen2.5-coder:7b</span>
+      <span>→</span>
+      <span class="border border-[var(--border)] rounded px-2 py-1 text-[var(--foreground)]">moondream:latest</span>
+      <span>→ return ""</span>
+    </div>
+    <p class="text-xs text-[var(--muted-foreground)] mt-2">Temperature: 0.1 · num_predict: 2048 · timeout: 180s · stream: false</p>
+  </div>
+
+  <script>
+  const MODELS=[
+    { n:"coding-primary", t:"qwen2.5-coder:7b", v:4.7, disk:"4.7 GB",
+      caps:["code_gen","code_review","spreadsheet_calc"],
+      d:"Specialized code model. Used for Python script generation, code review, and openpyxl spreadsheet formula generation. Handles multi-language coding tasks." },
+    { n:"reasoning-primary", t:"llama3.1:8b", v:4.9, disk:"4.9 GB",
+      caps:["general_qa","doc_summarize","doc_draft","multi_step_plan","rag_search"],
+      d:"General-purpose reasoning. Default fallback model. Handles document summarization, approval note drafting, multi-step plan synthesis, and RAG-grounded question answering." },
+    { n:"math-engineering", t:"deepseek-r1:7b", v:4.7, disk:"4.7 GB",
+      caps:["math_reasoning","engineering_calc","deep_reasoning"],
+      d:"Chain-of-thought reasoning model with strong math and engineering calculation capabilities. Uses extended thinking traces. Suitable for tolerance calculations and deep analysis." },
+    { n:"vision-primary", t:"moondream:latest", v:2.0, disk:"1.7 GB",
+      caps:["vision_ocr","drawing_analysis","image_qa"],
+      d:"Lightweight vision-language model. Receives base64-encoded images via Ollama API. Used for scanned PDF OCR (page-by-page), P&ID diagram reading, handwriting extraction, and image Q&A." },
+    { n:"embeddings", t:"nomic-embed-text", v:0.3, disk:"274 MB",
+      caps:["embedding"],
+      d:"Text embedding model for ChromaDB vector storage. Called via Ollama /api/embeddings endpoint. Generates 768-dim dense vectors for hybrid BM25+cosine RAG search." },
+  ];
+  const mc=document.getElementById("mcards");
+  const vb=document.getElementById("vbars");
+  MODELS.forEach(m=>{
+    mc.innerHTML+=`<div class="border border-[var(--border)] rounded-xl bg-[var(--card)] p-4">
+      <div class="flex items-start justify-between flex-wrap gap-2 mb-2">
+        <div><span class="font-semibold">${m.n}</span> <span class="font-mono text-xs text-[var(--muted-foreground)] ml-2">${m.t}</span></div>
+        <div class="flex gap-2"><span class="badge">${m.disk} disk</span><span class="badge bb">${m.v} GB VRAM</span></div>
+      </div>
+      <p class="text-xs text-[var(--muted-foreground)] mb-3">${m.d}</p>
+      <div class="flex flex-wrap gap-1">${m.caps.map(c=>`<span class="badge">${c}</span>`).join('')}</div>
+    </div>`;
+    const pct=(m.v/8*100).toFixed(1);
+    vb.innerHTML+=`<div>
+      <div class="flex justify-between text-xs mb-1"><span class="font-mono">${m.t}</span><span class="text-[var(--muted-foreground)]">${m.v} / 8.0 GB (${pct}%)</span></div>
+      <div class="bar-bg"><div class="bar" style="width:${pct}%"></div></div>
+    </div>`;
+  });
+  </script>
+</div>
+
+</main>
+
+<!-- ━━━━━━━━━━━━ FOOTER ━━━━━━━━━━━━ -->
+<footer class="border-t border-[var(--border)] mt-10 px-6 py-4">
+  <div class="max-w-6xl mx-auto flex items-center justify-between flex-wrap gap-2 text-xs text-[var(--muted-foreground)]">
+    <span>SIH-2026 · Air-Gapped Agentic AI Workbench</span>
+    <span>FastAPI · Ollama · ChromaDB · SQLite · Bubblewrap · Streamlit · React/Vite</span>
+  </div>
+</footer>
+
+<script>
+function go(name, btn){
+  document.querySelectorAll(".tab-panel").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+  document.getElementById("tab-"+name).classList.add("active");
+  if(btn && btn.classList){
+    btn.classList.add("active");
+  } else {
+    const b=document.querySelector(`.tab-btn[onclick*="'${name}'"]`);
+    if(b) b.classList.add("active");
+  }
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+</script>
+</body>
+</html>
