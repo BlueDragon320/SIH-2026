@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   FileText,
   Clock,
+  Timer,
   Zap,
   ExternalLink,
   ArrowDown,
@@ -209,6 +210,38 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
 
+  // Stopwatch state: starts when generating, stops after response
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
+    if (message.evalDurationMs) {
+      return message.evalDurationMs / 1000;
+    }
+    return 0;
+  });
+  const startTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (isGenerating) {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now();
+      }
+      interval = setInterval(() => {
+        if (startTimeRef.current) {
+          const diff = (Date.now() - startTimeRef.current) / 1000;
+          setElapsedSeconds(diff);
+        }
+      }, 100);
+    } else {
+      if (message.evalDurationMs) {
+        setElapsedSeconds(message.evalDurationMs / 1000);
+      }
+      startTimeRef.current = null;
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isGenerating, message.evalDurationMs]);
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -249,9 +282,32 @@ const MessageItem: React.FC<MessageItemProps> = ({
   return (
     <div className="flex flex-col space-y-3 animate-fade-in text-left">
       {/* Model & Meta Indicator */}
-      <div className="flex items-center gap-2 text-[11px] text-text-muted">
+      <div className="flex items-center gap-2 text-[11px] text-text-muted flex-wrap">
         <span className="w-2 h-2 rounded-full bg-crimson-500"></span>
         <span className="font-semibold text-text-secondary">{message.model || 'Local Model'}</span>
+
+        {/* Stopwatch next to LLM name */}
+        {(isGenerating || elapsedSeconds > 0 || message.evalDurationMs) && (
+          <span
+            className={`inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-md border transition-all ${
+              isGenerating
+                ? 'bg-crimson-500/15 text-crimson-400 border-crimson-500/30 animate-pulse shadow-[0_0_8px_rgba(239,35,60,0.2)]'
+                : 'bg-surface text-text-muted border-border/70'
+            }`}
+            title={isGenerating ? 'Generation in progress...' : 'Total generation time'}
+          >
+            <Timer
+              className={`w-3 h-3 ${isGenerating ? 'animate-spin text-crimson-400' : 'text-text-muted'}`}
+              style={isGenerating ? { animationDuration: '3s' } : undefined}
+            />
+            <span>
+              {elapsedSeconds < 60
+                ? `${elapsedSeconds.toFixed(1)}s`
+                : `${Math.floor(elapsedSeconds / 60)}m ${(elapsedSeconds % 60).toFixed(0)}s`}
+            </span>
+          </span>
+        )}
+
         {message.tokensPerSecond && (
           <span className="font-mono text-[10px] text-text-dim">
             • {message.tokensPerSecond} t/s

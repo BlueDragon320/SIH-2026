@@ -70,6 +70,7 @@ interface ChatState {
   // User Session Management
   initUserSessions: (user: any) => Promise<void>;
   clearUserSessions: () => void;
+  clearAllChats: () => Promise<void>;
 
   // Streaming & Execution
   isStreaming: boolean;
@@ -78,6 +79,18 @@ interface ChatState {
   stopStreaming: () => void;
   regenerateLastMessage: () => Promise<void>;
 }
+
+// Immediately purge older version caches from localStorage
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('workbench_sessions_v1') || k.startsWith('workbench_sessions_v2') || k.startsWith('workbench_sessions_v3') || k === 'workbench_sessions_v2' || k === 'workbench_sessions_v3')) {
+        localStorage.removeItem(k);
+      }
+    }
+  }
+} catch {}
 
 function getUserStorageKey(): string {
   try {
@@ -93,18 +106,18 @@ function getUserStorageKey(): string {
       );
       const payload = JSON.parse(jsonPayload);
       if (payload.sub) {
-        return `workbench_sessions_v2_${payload.sub}`;
+        return `workbench_sessions_v4_${payload.sub}`;
       }
     }
   } catch {}
-  return 'workbench_sessions_v2';
+  return 'workbench_sessions_v4';
 }
 
 // Load initial sessions from localStorage
 function loadSavedSessions(): Session[] {
   try {
     const key = getUserStorageKey();
-    const data = localStorage.getItem(key) || localStorage.getItem('workbench_sessions_v2');
+    const data = localStorage.getItem(key) || localStorage.getItem('workbench_sessions_v4');
     if (data) return JSON.parse(data);
   } catch {}
   const defaultSession: Session = {
@@ -148,7 +161,7 @@ function saveSessions(sessions: Session[]) {
   const key = getUserStorageKey();
   try {
     localStorage.setItem(key, JSON.stringify(sessions));
-    localStorage.setItem('workbench_sessions_v2', JSON.stringify(sessions));
+    localStorage.setItem('workbench_sessions_v3', JSON.stringify(sessions));
   } catch {}
 
   // Immediate debounced synchronization to backend
@@ -176,16 +189,17 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
       title: fname,
       timestamp,
       data: {
-        code: extraData?.content || extraData?.code || '# Python script executed in air-gapped sandbox',
+        code: extraData?.content || extraData?.code || '',
         language: 'python',
         filename: fname,
         stdout: extraData?.output || extraData?.stdout,
+        stderr: extraData?.stderr,
+        exitCode: extraData?.exit_code,
       },
     };
   }
 
   if (lower.endsWith('.xlsx') || lower.endsWith('.csv')) {
-    const isTradeSheet = lower.includes('order') || lower.includes('trade') || lower.includes('pnl');
     return {
       id,
       type: 'sheet',
@@ -193,23 +207,9 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
       timestamp,
       data: {
         filename: fname,
-        sheetTitle: isTradeSheet ? 'Trade_Log' : 'Data_Sheet',
-        headers: extraData?.headers || (isTradeSheet
-          ? ['Order Time', 'Symbol', 'Type', 'Quantity', 'Price', 'Net PnL']
-          : ['Component ID', 'Nominal (mm)', 'Measured (mm)', 'Deviation (mm)', 'Status']),
-        rows: extraData?.rows || (isTradeSheet
-          ? [
-              ['09:18:37', 'NIFTY 23350 CALL', 'BUY/SELL', 130, 64.25, '+1,027.00'],
-              ['10:38:00', 'NIFTY 23150 PUT', 'BUY/SELL', 195, 48.95, '+282.75'],
-              ['11:16:15', 'NIFTY 23150 PUT', 'BUY/SELL', 260, 41.20, '-1,430.00'],
-              ['13:30:55', 'NIFTY 23550 CALL', 'BUY/SELL', 455, 33.55, '+11,966.50'],
-            ]
-          : [
-              ['VALVE-01', 50.0, 50.02, 0.02, 'PASS'],
-              ['PUMP-04', 120.0, 120.08, 0.08, 'PASS'],
-              ['FLANGE-12', 75.0, 75.14, 0.14, 'PASS'],
-              ['COUPLING-03', 40.0, 40.01, 0.01, 'PASS'],
-            ]),
+        sheetTitle: extraData?.sheet_title || extraData?.sheetTitle || 'Sheet1',
+        headers: extraData?.headers || [],
+        rows: extraData?.rows || [],
       },
     };
   }
@@ -222,16 +222,12 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
       timestamp,
       data: {
         filename: fname,
-        title: extraData?.title || fname.replace(/\.docx$/i, '').replace(/_/g, ' ') || 'Inspection & Quality Clearance Approval Note',
-        findings: extraData?.findings || [
-          'Inspection evaluated against ISO 9001 and safety guidelines.',
-          'All critical tolerances observed within acceptable thresholds.',
-          'No signs of anomalous thermal stress or corrosion detected.',
-        ],
-        recommendations: extraData?.recommendations || [
-          'Grant operational clearance for component commissioning.',
-          'Schedule standard 6-month preventive maintenance follow-up.',
-        ],
+        title: extraData?.title || fname.replace(/\.docx$/i, '').replace(/_/g, ' '),
+        background: extraData?.background || '',
+        findings: extraData?.findings || [],
+        recommendations: extraData?.recommendations || [],
+        signoff_name: extraData?.signoff_name,
+        findings_table: extraData?.findings_table,
       },
     };
   }
@@ -256,7 +252,6 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
     lower.endsWith('.jpeg') ||
     lower.endsWith('.webp')
   ) {
-    const isPnl = lower.includes('pnl');
     return {
       id,
       type: 'image',
@@ -265,12 +260,7 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
       data: {
         filename: fname,
         url: extraData?.url || apiClient.getDownloadUrl(fname),
-        caption:
-          extraData?.description ||
-          extraData?.caption ||
-          (isPnl
-            ? 'High-resolution P&L turnaround and cumulative equity curve visualization'
-            : 'Generated Visual Deliverable'),
+        caption: extraData?.description || extraData?.caption || '',
         alt: fname,
       },
     };
@@ -281,13 +271,6 @@ function createArtifactForFile(fname: string, extraData?: any): Artifact | null 
 
 const initialSessions = loadSavedSessions();
 const initialActiveSession = initialSessions[0] || null;
-
-// Initial background sync of any existing local sessions to backend for Master Head Admin
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    syncAllSessionsToBackend();
-  }, 1000);
-}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: initialSessions,
@@ -322,6 +305,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSessionId: id,
       selectedModel: session?.modelOverride || 'Auto',
       ragEnabled: session?.ragEnabled ?? false,
+      activeArtifact: null,
+      isArtifactOpen: false,
     });
   },
 
@@ -345,7 +330,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   initUserSessions: async (user: any) => {
     if (!user) return;
-    const userKey = `workbench_sessions_v2_${user.id || user.username}`;
+    const userKey = `workbench_sessions_v3_${user.id || user.username}`;
     let loadedSessions: Session[] = [];
 
     // 1. Try local cache
@@ -379,6 +364,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (mappedSessions.length > 0) {
           loadedSessions = mappedSessions;
         }
+      } else if (serverChats && serverChats.length === 0) {
+        // Backend has no saved chats (clean state)
+        loadedSessions = [];
       }
     } catch (e) {
       console.error('Failed to fetch user chats from server', e);
@@ -398,7 +386,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       localStorage.setItem(userKey, JSON.stringify(loadedSessions));
-      localStorage.setItem('workbench_sessions_v2', JSON.stringify(loadedSessions));
+      localStorage.setItem('workbench_sessions_v3', JSON.stringify(loadedSessions));
     } catch {}
 
     set({
@@ -419,6 +407,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ragEnabled: false,
       messages: [],
     };
+    set({
+      sessions: [defaultSession],
+      activeSessionId: defaultSession.id,
+      activeArtifact: null,
+      isArtifactOpen: false,
+    });
+  },
+
+  clearAllChats: async () => {
+    try {
+      await apiClient.clearAllUserChats();
+    } catch (e) {
+      console.error('Failed to clear chats on server', e);
+    }
+    const defaultSession: Session = {
+      id: `session_${Date.now()}`,
+      title: 'New Chat',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      modelOverride: null,
+      ragEnabled: false,
+      messages: [],
+    };
+    saveSessions([defaultSession]);
     set({
       sessions: [defaultSession],
       activeSessionId: defaultSession.id,
@@ -607,12 +619,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       for (const file of attachmentFiles) {
         try {
           const up = await apiClient.uploadFile(file);
+          let previewText = '';
+          try {
+            if (
+              file.name.endsWith('.csv') ||
+              file.name.endsWith('.tsv') ||
+              file.name.endsWith('.txt') ||
+              file.name.endsWith('.json') ||
+              file.name.endsWith('.md') ||
+              file.name.endsWith('.py')
+            ) {
+              previewText = await file.text();
+            }
+          } catch {}
           uploadedAttachments.push({
             id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
             name: up.filename,
             size: up.size_bytes,
             type: file.type,
             path: up.absolute_path,
+            content: previewText,
           });
         } catch (e) {
           console.error('File upload error', e);
@@ -666,15 +692,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const { selectedModel, ragEnabled, params } = get();
 
+    // Scope files strictly to those shared in this specific chat session
+    const previousChatAttachments = (session.messages || []).flatMap(m => m.attachments || []);
+    const allChatAttachments = [...previousChatAttachments, ...uploadedAttachments];
+    const chatAttachmentNames = Array.from(new Set(allChatAttachments.map((a: any) => a.name).filter(Boolean)));
+
     // -------------------------------------------------------------
     // PATH 1: AUTO ROUTING, RAG, OR ATTACHMENTS VIA ORCHESTRATOR
     // -------------------------------------------------------------
-    if (selectedModel === 'Auto' || ragEnabled || uploadedAttachments.length > 0) {
+    if (selectedModel === 'Auto' || ragEnabled || chatAttachmentNames.length > 0) {
+      const taskStartTime = Date.now();
       try {
-        const attachmentNames = uploadedAttachments.map(a => a.name);
         const taskRes = await apiClient.submitTask({
           prompt,
-          attachments: attachmentNames,
+          attachments: chatAttachmentNames,
           manual_model_override: selectedModel === 'Auto' ? null : selectedModel,
         });
 
@@ -682,16 +713,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const routedModel = taskRes.routing_decision?.ollama_tag || selectedModel;
         const taskType = taskRes.routing_decision?.task_type || 'agent_task';
 
-        // Poll for task completion while showing running status
+        // Poll for task completion while showing running status and live step progress
         let completed = false;
         let pollCount = 0;
-        while (!completed && pollCount < 60) {
-          if (abortController.signal.aborted) break;
+        const maxPolls = 250; // Allow up to 5 minutes for comprehensive analysis and code execution
+        while (!completed && pollCount < maxPolls) {
+          if (abortController.signal.aborted) {
+            set({ isStreaming: false, activeAbortController: null });
+            return;
+          }
           await new Promise(r => setTimeout(r, 1200));
           pollCount++;
 
           const taskData = await apiClient.getTaskStatus(taskId).catch(() => null);
           if (taskData) {
+            // Live step updates so user sees active progress on UI
+            if (taskData.status === 'RUNNING' && taskData.steps && taskData.steps.length > 0) {
+              const lastStep = taskData.steps[taskData.steps.length - 1];
+              const stepNotice = `Analyzing ${chatAttachmentNames.join(', ')}...\n\n* Step (${taskData.steps.length}): **${lastStep.description || 'Processing data'}**`;
+              const progressSessions = get().sessions.map(s => {
+                if (s.id !== session.id) return s;
+                return {
+                  ...s,
+                  messages: s.messages.map(m =>
+                    m.id === assistantMessageId
+                      ? {
+                          ...m,
+                          content: stepNotice,
+                          steps: taskData.steps,
+                          model: routedModel,
+                        }
+                      : m
+                  ),
+                };
+              });
+              set({ sessions: progressSessions });
+            }
+
             if (taskData.status === 'COMPLETED' || taskData.status === 'FAILED') {
               completed = true;
 
@@ -714,6 +772,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 for (const st of taskData.steps) {
                   const out = st.tool_output;
                   if (out && typeof out === 'object') {
+                    if (Array.isArray(out.generated_images)) {
+                      for (const imgName of out.generated_images) {
+                        if (typeof imgName === 'string' && !detectedArtifacts.some(a => a.title.toLowerCase() === imgName.toLowerCase())) {
+                          const art = createArtifactForFile(imgName, { filename: imgName, type: 'image' });
+                          if (art) detectedArtifacts.push(art);
+                        }
+                      }
+                    }
                     const stepDeliv = out.deliverable || out.saved_script || out.filename;
                     if (stepDeliv && typeof stepDeliv === 'string') {
                       if (!detectedArtifacts.some(a => a.title.toLowerCase() === stepDeliv.toLowerCase())) {
@@ -725,13 +791,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 }
               }
 
-              // 3. Scan combinedText (prompt + final_response) for referenced deliverables (.docx, .xlsx, .pdf, .png, etc.)
+              // 3. Scan combinedText for generated deliverables or chat attachments
               const combinedText = `${prompt} ${taskData.final_response || ''}`;
               const delivRegex = /\b([a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)*\.(?:docx|xlsx|pdf|png|jpg|jpeg|webp|csv))\b/gi;
               let delivMatch;
               while ((delivMatch = delivRegex.exec(combinedText)) !== null) {
                 const detectedFname = delivMatch[1];
-                if (!detectedArtifacts.some(a => a.title.toLowerCase() === detectedFname.toLowerCase())) {
+                const isChatAttachment = chatAttachmentNames.some(a => a.toLowerCase() === detectedFname.toLowerCase());
+                const isGeneratedDeliverable = (taskData.final_response || '').toLowerCase().includes(detectedFname.toLowerCase());
+                if ((isChatAttachment || isGeneratedDeliverable) && !detectedArtifacts.some(a => a.title.toLowerCase() === detectedFname.toLowerCase())) {
                   const art = createArtifactForFile(detectedFname);
                   if (art) detectedArtifacts.push(art);
                 }
@@ -751,6 +819,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                           taskType: taskType,
                           steps: taskData.steps || [],
                           artifacts: detectedArtifacts,
+                          evalDurationMs: Date.now() - taskStartTime,
                         }
                       : m
                   ),
@@ -764,14 +833,62 @@ export const useChatStore = create<ChatState>((set, get) => ({
               });
 
               if (detectedArtifacts.length > 0) {
-                get().openArtifact(detectedArtifacts[0]);
+                const imageArt = detectedArtifacts.find(a => a.type === 'image');
+                const wantsImage = /\b(image|images|chart|charts|plot|plots|graph|graphs|visual|visuals)\b/i.test(prompt);
+                if (imageArt && (wantsImage || detectedArtifacts[0].type === 'code')) {
+                  get().openArtifact(imageArt);
+                } else {
+                  get().openArtifact(detectedArtifacts[0]);
+                }
               }
               return;
             }
           }
         }
+
+        if (!completed) {
+          const timeoutSessions = get().sessions.map(s => {
+            if (s.id !== session.id) return s;
+            return {
+              ...s,
+              messages: s.messages.map(m =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      content: `The analysis task for ${chatAttachmentNames.join(', ')} is taking longer than expected. The agent is still processing in the background.`,
+                      model: routedModel,
+                    }
+                  : m
+              ),
+            };
+          });
+          saveSessions(timeoutSessions);
+          set({
+            sessions: timeoutSessions,
+            isStreaming: false,
+            activeAbortController: null,
+          });
+        }
+        return; // Strict return: NEVER fall through to PATH 2!
       } catch (err: any) {
         console.error('Agent task error', err);
+        const errSessions = get().sessions.map(s => {
+          if (s.id !== session.id) return s;
+          return {
+            ...s,
+            messages: s.messages.map(m =>
+              m.id === assistantMessageId
+                ? {
+                    ...m,
+                    content: `Error executing task: ${err.message || err}`,
+                  }
+                : m
+            ),
+          };
+        });
+        saveSessions(errSessions);
+        set({ sessions: errSessions, isStreaming: false, activeAbortController: null });
+        return; // Strict return: NEVER fall through to PATH 2!
       }
     }
 
@@ -780,11 +897,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // -------------------------------------------------------------
     const targetModel = selectedModel === 'Auto' ? 'qwen2.5-coder:7b' : selectedModel;
 
-    // Convert session history to Ollama format
-    const chatHistory = updatedMessages.map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Convert session history to Ollama format, injecting file contents if available
+    const chatHistory = updatedMessages.map((m, idx) => {
+      let content = m.content;
+      if (idx === updatedMessages.length - 2 && m.role === 'user' && m.attachments && m.attachments.length > 0) {
+        const fileSnippets = m.attachments
+          .filter((a: any) => a.content)
+          .map((a: any) => `\n\n[Attached File Content (${a.name})]:\n${a.content.slice(0, 16000)}`)
+          .join('\n');
+        if (fileSnippets) {
+          content = `${content}\n${fileSnippets}`;
+        }
+      }
+      return {
+        role: m.role,
+        content,
+      };
+    });
 
     await streamOllamaChat(
       targetModel,
@@ -840,13 +969,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
               }
             }
 
-            // Also inspect for deliverable filenames mentioned in response (.docx, .xlsx, .pdf, .png, etc.)
+            // Also inspect for deliverable filenames (shared in chat or generated deliverables)
             const delivRegex = /\b([a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)*\.(?:docx|xlsx|pdf|png|jpg|jpeg|webp|csv))\b/gi;
             let dMatch;
             const seenFiles = new Set<string>();
             while ((dMatch = delivRegex.exec(finalMsg.content)) !== null) {
               const dFname = dMatch[1];
-              if (!seenFiles.has(dFname.toLowerCase()) && !detectedArtifacts.some(a => a.title.toLowerCase() === dFname.toLowerCase())) {
+              const isChatAttachment = chatAttachmentNames.some(a => a.toLowerCase() === dFname.toLowerCase());
+              const isGenerated = /\.(?:png|jpg|jpeg|webp|svg|docx|xlsx|pdf)$/i.test(dFname);
+              if ((isChatAttachment || isGenerated) && !seenFiles.has(dFname.toLowerCase()) && !detectedArtifacts.some(a => a.title.toLowerCase() === dFname.toLowerCase())) {
                 seenFiles.add(dFname.toLowerCase());
                 const art = createArtifactForFile(dFname);
                 if (art) detectedArtifacts.push(art);
@@ -879,9 +1010,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
             activeAbortController: null,
           });
 
-          // Open artifact drawer if code artifact was extracted
+          // Open artifact drawer if artifact was extracted
           if (detectedArtifacts.length > 0) {
-            get().openArtifact(detectedArtifacts[0]);
+            const imageArt = detectedArtifacts.find(a => a.type === 'image');
+            const wantsImage = /\b(image|images|chart|charts|plot|plots|graph|graphs|visual|visuals)\b/i.test(prompt);
+            if (imageArt && (wantsImage || detectedArtifacts[0].type === 'code')) {
+              get().openArtifact(imageArt);
+            } else {
+              get().openArtifact(detectedArtifacts[0]);
+            }
           }
         },
         onError: err => {

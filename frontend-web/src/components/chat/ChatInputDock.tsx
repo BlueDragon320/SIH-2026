@@ -186,11 +186,11 @@ export const ChatInputDock: React.FC = () => {
               <select
                 value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
-                className="bg-transparent text-text-primary outline-none cursor-pointer"
+                className="bg-[#18181b] text-text-primary outline-none cursor-pointer [color-scheme:dark] border-0 focus:ring-0"
               >
-                <option value="Auto">⚡ Auto-Route</option>
+                <option value="Auto" className="bg-[#18181b] text-[#f4f4f5] py-1.5 px-2">⚡ Auto-Route</option>
                 {models.filter(m => m.is_installed).map(m => (
-                  <option key={m.ollama_tag} value={m.ollama_tag}>
+                  <option key={m.ollama_tag} value={m.ollama_tag} className="bg-[#18181b] text-[#f4f4f5] py-1.5 px-2">
                     {m.name} ({m.ollama_tag})
                   </option>
                 ))}

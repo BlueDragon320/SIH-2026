@@ -102,9 +102,9 @@ export function UserChats() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold text-text-primary">Department Chat Surveillance</h2>
+            <h2 className="text-2xl font-bold text-text-primary">User Chat Monitoring</h2>
             <span className="text-xs bg-crimson-600/20 text-crimson-400 border border-crimson-600/30 px-2 py-0.5 rounded-full font-semibold">
-              Master Head View
+              Admin View
             </span>
           </div>
           <p className="text-text-secondary text-sm">

@@ -55,13 +55,22 @@ __pycache__/
 .pytest_cache/
 .coverage
 
-# Local Databases, Vector Store & Workspace Artifacts
+# Local Databases, Vector Store & Runtime Artifacts
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
 data/agent_tasks.db
 data/audit.db
+data/auth.db
+data/tasks.db
 data/audit_log.jsonl
 data/chroma_db/
+data/knowledge_base/.ingest_state.json
 data/workspace/*
 !data/workspace/.gitkeep
+data/user_chats/*
+!data/user_chats/.gitkeep
 data/*.log
 *.log
 
@@ -69,6 +78,8 @@ data/*.log
 .env
 .env.local
 !.env.example
+data/.auth_secret
+.auth_secret
 
 # OS & Editor Metadata
 .DS_Store
@@ -76,9 +87,14 @@ Thumbs.db
 .vscode/
 .idea/
 
-# PyInstaller & Build Outputs
+# PyInstaller, Vite & Build Outputs
 build/
 dist/
+**/dist/
+frontend-web/dist/
+frontend-web/public/workspace/
+frontend-web/public/*.png
+!frontend-web/public/.gitkeep
 *.spec
 run_workbench.exe
 

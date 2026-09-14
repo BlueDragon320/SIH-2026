@@ -48,7 +48,7 @@ export function AdminDashboard() {
           </div>
           <div>
             <h1 className="font-bold text-base leading-tight">Admin Portal</h1>
-            <div className="text-[10px] uppercase font-mono tracking-wider text-crimson-400 font-semibold">Head of Department</div>
+            <div className="text-[10px] uppercase font-mono tracking-wider text-crimson-400 font-semibold">Administrator</div>
           </div>
         </div>
         
@@ -73,7 +73,7 @@ export function AdminDashboard() {
 
         <div className="p-4 border-t border-border">
           <div className="mb-3 p-2 rounded-lg bg-surface-subtle border border-border/60">
-            <div className="text-[10px] text-text-muted uppercase font-mono tracking-wider">Authorized Master Head</div>
+            <div className="text-[10px] text-text-muted uppercase font-mono tracking-wider">Authorized Admin</div>
             <div className="text-sm font-semibold text-text-primary truncate">{user?.username || 'Administrator'}</div>
           </div>
           <Link 

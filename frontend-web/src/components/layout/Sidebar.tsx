@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelM
     renameSession,
     pinSession,
     exportSession,
+    clearAllChats,
     selectedModel,
     setSelectedModel,
     models,
@@ -199,6 +200,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelM
   const gpuTemp = hardware?.gpu?.available ? Math.round(hardware.gpu.temperature_c) : 0;
   const isAirGapped = network?.verified_zero_egress || (network?.external_egress_rate_bps || 0) < 500;
 
+  // Derive cleaned GPU display name matching device specs
+  const rawGpuName = hardware?.gpu?.name;
+  const gpuDisplayName = rawGpuName && rawGpuName !== 'N/A'
+    ? rawGpuName
+        .replace(/^NVIDIA(\s+Corporation)?\s*/i, '')
+        .replace(/^Advanced Micro Devices,?\s*Inc\.?\s*/i, '')
+        .replace(/\[|\]/g, '')
+        .trim()
+    : (hardware?.gpu?.available ? 'Dedicated GPU' : 'Host GPU');
+
   return (
     <aside
       className={`relative flex flex-col h-screen bg-surface-subtle border-r border-border transition-all duration-300 ease-in-out select-none shrink-0 z-30 ${
@@ -284,6 +295,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelM
 
       {/* 3. Chat History List */}
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-4">
+        <div className="flex items-center justify-between px-2 pt-1 pb-0.5">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-text-muted">Chat History</span>
+          {sessions.some(s => s.messages && s.messages.length > 0) && (
+            <button
+              onClick={() => {
+                if (window.confirm('Clear all chat history? This will start a completely fresh session.')) {
+                  clearAllChats();
+                }
+              }}
+              className="text-[10px] text-text-muted hover:text-rose-400 flex items-center gap-1 transition-colors px-1 py-0.5 rounded hover:bg-surface cursor-pointer"
+              title="Clear all chat history"
+            >
+              <Trash2 className="w-2.5 h-2.5" />
+              Clear All
+            </button>
+          )}
+        </div>
         {pinnedSessions.length > 0 && (
           <div>
             <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-text-muted">Pinned</div>
@@ -332,7 +360,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelM
               <div className="text-[11px] font-medium text-text-primary truncate">{user?.username || 'User'}</div>
               <div className="text-[9px] text-text-muted flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-crimson-500' : 'bg-emerald-500'}`}></span>
-                {isAdmin ? 'Master Head of Department' : 'Department Operator'}
+                {isAdmin ? 'Admin' : 'Operator'}
               </div>
             </div>
           </div>
@@ -360,11 +388,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onOpenModelM
         {/* GPU & VRAM telemetry */}
         <div className="bg-surface/80 border border-border/80 rounded-lg p-2.5 text-[11px] space-y-1.5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-text-secondary font-medium">
-              <Cpu className="w-3.5 h-3.5 text-crimson-500" />
-              <span>RTX 3060</span>
+            <div className="flex items-center gap-1.5 text-text-secondary font-medium min-w-0">
+              <Cpu className="w-3.5 h-3.5 text-crimson-500 shrink-0" />
+              <span className="truncate max-w-[130px]" title={rawGpuName || gpuDisplayName}>
+                {gpuDisplayName}
+              </span>
             </div>
-            <span className="font-mono text-[10px] text-text-primary">
+            <span className="font-mono text-[10px] text-text-primary shrink-0 ml-1">
               {vramUsedGb} / {vramTotalGb} GB
             </span>
           </div>

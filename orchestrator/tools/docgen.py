@@ -152,6 +152,12 @@ def create_approval_note(
         "deliverable": os.path.basename(target_path),
         "absolute_path": target_path,
         "type": "docx",
+        "title": title,
+        "background": background,
+        "findings": findings,
+        "recommendations": recommendations,
+        "signoff_name": signoff_name,
+        "findings_table": findings_table,
         "message": f"Generated official Approval Note: {os.path.basename(target_path)}"
     }
 

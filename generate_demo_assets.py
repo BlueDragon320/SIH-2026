@@ -10,7 +10,7 @@ import math
 import random
 from PIL import Image, ImageDraw, ImageFont
 
-OUTPUT_DIR = "/home/blue/SIH/data/workspace"
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "data", "workspace"))
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def get_font(font_name, size, bold=False, italic=False):

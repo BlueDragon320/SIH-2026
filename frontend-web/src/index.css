@@ -33,6 +33,31 @@
   background: #3f3f46;
 }
 
+/* Dark Theme Select and Dropdown Options (Theme Consistency) */
+select {
+  color-scheme: dark;
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+
+select option {
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+  padding: 6px 10px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}
+
+select optgroup {
+  background-color: #141417 !important;
+  color: #a1a1aa !important;
+}
+
 /* Glassmorphic utilities */
 .glass-panel {
   background: rgba(24, 24, 27, 0.75);

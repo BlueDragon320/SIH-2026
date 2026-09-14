@@ -12,7 +12,9 @@ if not hasattr(bcrypt, "__about__"):
 from passlib.context import CryptContext
 
 # Configuration
-SECRET_KEY_PATH = "/home/blue/SIH/data/.auth_secret"
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DEFAULT_SECRET_KEY_PATH = os.path.join(PROJECT_ROOT, "data", ".auth_secret")
+SECRET_KEY_PATH = os.environ.get("AUTH_SECRET_PATH", DEFAULT_SECRET_KEY_PATH)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))

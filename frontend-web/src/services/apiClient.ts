@@ -245,5 +245,13 @@ export const apiClient = {
     });
     if (!res.ok) throw new Error('Failed to delete chat');
     return res.json();
+  },
+
+  async clearAllUserChats(): Promise<any> {
+    const res = await fetchWithAuth(`${API_BASE}/user/chats`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to clear chats');
+    return res.json();
   }
 };

@@ -188,6 +188,16 @@ class TaskMemoryStore:
         conn.close()
         return deleted
 
+    def clear_all_tasks(self, user_id: Optional[str] = None):
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        if user_id:
+            cur.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
+        else:
+            cur.execute("DELETE FROM tasks")
+        conn.commit()
+        conn.close()
+
 
     def get_tasks_by_user(self, user_id: str, limit: int = 20) -> List[TaskState]:
         conn = sqlite3.connect(self.db_path)

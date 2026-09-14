@@ -52,8 +52,15 @@ class LocalVectorStore:
 
         return chunks if chunks else [text]
 
-    def add_document(self, filename: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> int:
-        """Chunk, embed, and index a document into the vector store."""
+    def add_document(
+        self,
+        filename: str,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        sensitivity: Optional[str] = "internal",
+        department: Optional[str] = "general"
+    ) -> int:
+        """Chunk, embed, and index a document into the vector store with sensitivity & department tags (Spec §5.6)."""
         chunks = self.chunk_text(text)
         if not chunks:
             return 0
@@ -67,6 +74,8 @@ class LocalVectorStore:
             m["source"] = filename
             m["chunk_index"] = i
             m["total_chunks"] = len(chunks)
+            m["sensitivity"] = metadata.get("sensitivity") or sensitivity or "internal"
+            m["department"] = metadata.get("department") or department or "general"
             metadatas.append(m)
 
         self.collection.add(
@@ -75,17 +84,23 @@ class LocalVectorStore:
             documents=chunks,
             metadatas=metadatas
         )
-        logger.info(f"Indexed document '{filename}': {len(chunks)} chunks stored.")
+        logger.info(f"Indexed document '{filename}': {len(chunks)} chunks stored (sensitivity={m['sensitivity']}, dept={m['department']}).")
         return len(chunks)
 
-    def hybrid_search(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
-        """Perform hybrid search (cosine vector similarity + keyword BM25 boost)."""
+    def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 4,
+        sensitivity: Optional[str] = None,
+        department: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Perform hybrid search (cosine vector similarity + keyword BM25 boost) with optional sensitivity/department filters."""
         count = self.collection.count()
         if count == 0:
             return []
 
         query_embedding = self.embedder.embed_text(query)
-        actual_k = min(top_k * 2, count)
+        actual_k = min(top_k * 4 if (sensitivity or department) else top_k * 2, count)
 
         vector_results = self.collection.query(
             query_embeddings=[query_embedding],
@@ -101,6 +116,12 @@ class LocalVectorStore:
         query_terms = set(re.findall(r"\w+", query.lower()))
 
         for doc, meta, dist in zip(docs, metadatas, distances):
+            # Optional sensitivity and department filtering (Spec §5.6)
+            if sensitivity and meta.get("sensitivity") != sensitivity:
+                continue
+            if department and meta.get("department") != department:
+                continue
+
             # Cosine distance to similarity (1 - distance)
             sim_score = 1.0 - dist
             # Keyword presence boost

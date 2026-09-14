@@ -1,0 +1,38 @@
+Sovereign AI Workbench for Air-Gapped Environments
+Copyright (c) 2026 Sovereign AI Workbench Contributors
+
+This project incorporates and builds upon the following open-source software:
+
+1. Ollama (https://github.com/ollama/ollama)
+   - License: MIT License
+   - Copyright (c) Ollama
+   - Used as the local air-gapped Large Language Model and Vision Model serving daemon.
+
+2. FastAPI (https://github.com/fastapi/fastapi)
+   - License: MIT License
+   - Copyright (c) 2018 Sebastián Ramírez
+   - Used for the backend orchestrator and control-plane API service.
+
+3. React (https://github.com/facebook/react)
+   - License: MIT License
+   - Copyright (c) Meta Platforms, Inc. and affiliates
+   - Used for the front-end user interface.
+
+4. Vite (https://github.com/vitejs/vite)
+   - License: MIT License
+   - Copyright (c) 2019-present Evan You & Vite Contributors
+   - Used for the frontend development and build tooling.
+
+5. ChromaDB (https://github.com/chroma-core/chroma)
+   - License: Apache License 2.0
+   - Copyright (c) Chroma
+   - Used for local air-gapped vector embeddings and similarity search.
+
+6. Bubblewrap (bwrap) (https://github.com/containers/bubblewrap)
+   - License: GNU Lesser General Public License v2.0 or later (LGPL-2.0+)
+   - Used as an unprivileged Linux sandboxing utility for network-isolated code execution.
+
+7. Open Model Architectures:
+   - Qwen2.5-Coder: Licensed under the Apache License 2.0 / Qwen Community License.
+   - Moondream: Licensed under Apache 2.0.
+   - Nomic Embed Text: Licensed under Apache 2.0.

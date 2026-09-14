@@ -28,7 +28,7 @@ import { apiClient } from '../../services/apiClient';
 import { RAGChunk } from '../../types';
 
 export const ArtifactCanvas: React.FC = () => {
-  const { activeArtifact, isArtifactOpen, closeArtifact, runCodeArtifact } = useChatStore();
+  const { activeArtifact, isArtifactOpen, closeArtifact, runCodeArtifact, getActiveSession, openArtifact } = useChatStore();
   const [activeTab, setActiveTab] = useState<'code' | 'sheet' | 'image' | 'rag'>('code');
   const [copied, setCopied] = useState(false);
 
@@ -44,6 +44,24 @@ export const ArtifactCanvas: React.FC = () => {
   const [imgLoadError, setImgLoadError] = useState(false);
   const [resolvedSrc, setResolvedSrc] = useState<string>('');
 
+  const session = getActiveSession?.();
+  const sessionArtifacts = (session?.messages || []).flatMap(m => m.artifacts || []);
+  const imageArtifacts = sessionArtifacts.filter(a => a.type === 'image');
+  const sheetArtifacts = sessionArtifacts.filter(a => a.type === 'sheet' || a.type === 'doc' || a.type === 'pdf');
+  const codeArtifacts = sessionArtifacts.filter(a => a.type === 'code');
+
+  const currentImageArtifact = activeArtifact?.type === 'image'
+    ? activeArtifact
+    : (imageArtifacts.length > 0 ? imageArtifacts[imageArtifacts.length - 1] : null);
+
+  const currentSheetArtifact = (activeArtifact?.type === 'sheet' || activeArtifact?.type === 'doc' || activeArtifact?.type === 'pdf')
+    ? activeArtifact
+    : (sheetArtifacts.length > 0 ? sheetArtifacts[sheetArtifacts.length - 1] : null);
+
+  const currentCodeArtifact = activeArtifact?.type === 'code'
+    ? activeArtifact
+    : (codeArtifacts.length > 0 ? codeArtifacts[codeArtifacts.length - 1] : null);
+
   if (!isArtifactOpen || !activeArtifact) return null;
 
   // Sync tab with active artifact type
@@ -54,7 +72,7 @@ export const ArtifactCanvas: React.FC = () => {
     else if (activeArtifact.type === 'rag') setActiveTab('rag');
   }, [activeArtifact]);
 
-  const imageData = activeArtifact.type === 'image' ? (activeArtifact.data as any) : null;
+  const imageData = (activeArtifact.type === 'image' ? activeArtifact.data : currentImageArtifact?.data) as any;
 
   // Resolve image source URL and handle fallbacks
   useEffect(() => {
@@ -129,18 +147,18 @@ export const ArtifactCanvas: React.FC = () => {
     (!isPdf && !isXlsxOrCsv) &&
     (activeArtifact.type === 'doc' || lowerDocName.endsWith('.docx') || activeTab === 'sheet');
 
-  const isPnlChart =
-    (imageData?.filename || '').toLowerCase().includes('pnl') ||
-    (imageData?.caption || '').toLowerCase().includes('turnaround') ||
-    (imageData?.filename || '').toLowerCase().includes('sep11');
-
   return (
     <div className="flex flex-col h-full bg-surface-subtle border-l border-border select-text">
       {/* 1. Header & Tabs */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface shrink-0">
         <div className="flex items-center gap-1 bg-background p-0.5 rounded-lg border border-border">
           <button
-            onClick={() => setActiveTab('code')}
+            onClick={() => {
+              setActiveTab('code');
+              if (currentCodeArtifact && activeArtifact.id !== currentCodeArtifact.id) {
+                openArtifact(currentCodeArtifact);
+              }
+            }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
               activeTab === 'code'
                 ? 'bg-surface text-text-primary shadow-sm border border-border'
@@ -151,7 +169,12 @@ export const ArtifactCanvas: React.FC = () => {
             Code & Sandbox
           </button>
           <button
-            onClick={() => setActiveTab('sheet')}
+            onClick={() => {
+              setActiveTab('sheet');
+              if (currentSheetArtifact && activeArtifact.id !== currentSheetArtifact.id) {
+                openArtifact(currentSheetArtifact);
+              }
+            }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
               activeTab === 'sheet'
                 ? 'bg-surface text-text-primary shadow-sm border border-border'
@@ -162,7 +185,12 @@ export const ArtifactCanvas: React.FC = () => {
             Sheets & Docs
           </button>
           <button
-            onClick={() => setActiveTab('image')}
+            onClick={() => {
+              setActiveTab('image');
+              if (currentImageArtifact && activeArtifact.id !== currentImageArtifact.id) {
+                openArtifact(currentImageArtifact);
+              }
+            }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
               activeTab === 'image'
                 ? 'bg-surface text-text-primary shadow-sm border border-border'
@@ -171,6 +199,11 @@ export const ArtifactCanvas: React.FC = () => {
           >
             <ImageIcon className="w-3.5 h-3.5 text-sky-400" />
             Charts & Visuals
+            {imageArtifacts.length > 0 && (
+              <span className="ml-0.5 text-[10px] font-mono px-1 py-0.2 bg-sky-500/20 text-sky-400 rounded-full font-semibold">
+                {imageArtifacts.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('rag')}
@@ -415,10 +448,7 @@ export const ArtifactCanvas: React.FC = () => {
                   <thead className="bg-surface/90 backdrop-blur-sm border-b border-border sticky top-0 z-10">
                     <tr>
                       <th className="px-3 py-2 text-text-muted font-semibold w-10 text-center border-r border-border/40">#</th>
-                      {(sheetData?.headers && sheetData.headers.length > 0
-                        ? sheetData.headers
-                        : ['Item ID', 'Description', 'Nominal', 'Measured', 'Status']
-                      ).map((h: string, idx: number) => (
+                      {(sheetData?.headers || []).map((h: string, idx: number) => (
                         <th key={idx} className="px-3 py-2 text-text-secondary font-semibold whitespace-nowrap">
                           {h}
                         </th>
@@ -426,15 +456,7 @@ export const ArtifactCanvas: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/40">
-                    {(sheetData?.rows && sheetData.rows.length > 0
-                      ? sheetData.rows
-                      : [
-                          ['VALVE-01', 'High-Pressure Safety Valve', '50.00 mm', '50.02 mm', 'PASS'],
-                          ['PUMP-04', 'Hydraulic Impeller Pump', '120.00 mm', '120.08 mm', 'PASS'],
-                          ['FLANGE-12', 'Cryogenic Joint Flange', '75.00 mm', '75.14 mm', 'PASS'],
-                          ['COUPLING-03', 'Torque Transmission Coupling', '40.00 mm', '40.01 mm', 'PASS'],
-                        ]
-                    ).map((row: any[], rIdx: number) => (
+                    {(sheetData?.rows || []).map((row: any[], rIdx: number) => (
                       <tr key={rIdx} className="hover:bg-surface/40 transition-colors">
                         <td className="px-3 py-2 text-text-dim text-center font-mono text-[10px] border-r border-border/40 bg-surface/20">
                           {rIdx + 1}
@@ -464,6 +486,13 @@ export const ArtifactCanvas: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {(!sheetData?.rows || sheetData.rows.length === 0) && (
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                  <FileSpreadsheet className="w-10 h-10 text-text-dim mb-3 opacity-40" />
+                  <p className="text-sm text-text-muted">No preview data available</p>
+                  <p className="text-xs text-text-dim mt-1">Download the file to view its contents</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -477,7 +506,7 @@ export const ArtifactCanvas: React.FC = () => {
                     Official Sovereign Approval Note
                   </span>
                   <h2 className="text-base font-bold text-text-primary mt-2">
-                    {docData?.title || 'Inspection & Quality Clearance Approval Note'}
+                    {docData?.title || activeArtifact.title.replace(/\.docx$/i, '').replace(/_/g, ' ')}
                   </h2>
                 </div>
                 <div className="text-right font-mono text-[10px] text-text-muted space-y-0.5">
@@ -492,8 +521,7 @@ export const ArtifactCanvas: React.FC = () => {
                   1. Background & Verification Scope
                 </h4>
                 <p className="text-text-primary leading-relaxed bg-surface/40 p-3 rounded-lg border border-border/60">
-                  {docData?.background ||
-                    'Inspection evaluated against strict ISO 9001 and high-reliability aerospace/defence manufacturing tolerances. All automated checks executed locally within the air-gapped execution environment.'}
+                  {docData?.background || 'Document background details are available in the downloaded file.'}
                 </p>
               </div>
 
@@ -503,20 +531,17 @@ export const ArtifactCanvas: React.FC = () => {
                   2. Key Audit Findings & Compliance Check
                 </h4>
                 <div className="space-y-1.5">
-                  {(docData?.findings && docData.findings.length > 0
-                    ? docData.findings
-                    : [
-                        'Evaluated component geometry against nominal CAD specifications.',
-                        'All critical dimensions verified within nominal tolerances (±0.15mm margin).',
-                        'No anomalous structural defects, thermal stress, or surface deviations detected.',
-                        'Cryptographic SHA-256 audit digest generated and signed locally.'
-                      ]
-                  ).map((f: string, i: number) => (
+                  {(docData?.findings || []).map((f: string, i: number) => (
                     <div key={i} className="flex items-start gap-2.5 p-2 rounded-md bg-surface/30 border border-border/40">
                       <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <span className="text-text-primary leading-normal">{f}</span>
                     </div>
                   ))}
+                  {(!docData?.findings || docData.findings.length === 0) && (
+                    <div className="p-3 rounded-md bg-surface/30 border border-border/40 text-text-muted text-xs italic">
+                      Document findings are available in the downloaded file.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -526,14 +551,7 @@ export const ArtifactCanvas: React.FC = () => {
                   3. Operational Clearance & Recommendations
                 </h4>
                 <ul className="list-disc pl-5 space-y-1.5 text-text-primary">
-                  {(docData?.recommendations && docData.recommendations.length > 0
-                    ? docData.recommendations
-                    : [
-                        'Grant immediate operational clearance for integration and commissioning.',
-                        'Archive verification audit trail in local tamper-proof SQLite memory.',
-                        'Conduct standard 6-month scheduled preventive calibration.'
-                      ]
-                  ).map((r: string, i: number) => (
+                  {(docData?.recommendations || []).map((r: string, i: number) => (
                     <li key={i} className="leading-relaxed">{r}</li>
                   ))}
                 </ul>
@@ -554,6 +572,30 @@ export const ArtifactCanvas: React.FC = () => {
       {/* 4. Tab 3: Visual & Chart Artifact Inspector */}
       {activeTab === 'image' && (
         <div className="flex-1 flex flex-col overflow-hidden bg-background">
+          {/* Multiple Image Selector Pills */}
+          {imageArtifacts.length > 1 && (
+            <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-surface/50 overflow-x-auto shrink-0">
+              <span className="text-[10px] font-mono text-text-muted uppercase tracking-wider mr-1">Charts ({imageArtifacts.length}):</span>
+              {imageArtifacts.map(art => {
+                const isCurrent = (activeArtifact.id === art.id || currentImageArtifact?.id === art.id);
+                return (
+                  <button
+                    key={art.id}
+                    onClick={() => openArtifact(art)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-all ${
+                      isCurrent
+                        ? 'bg-crimson-600 text-white shadow-sm font-semibold'
+                        : 'bg-surface hover:bg-surface-hover text-text-secondary border border-border/60'
+                    }`}
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    <span className="truncate max-w-[160px]">{art.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Action Toolbar */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-border/80 bg-surface/50 text-xs shrink-0">
             <div className="flex items-center gap-2 min-w-0">
@@ -623,46 +665,6 @@ export const ArtifactCanvas: React.FC = () => {
 
           {/* Main Visual Content Viewport */}
           <div className="flex-1 flex flex-col overflow-hidden p-4 space-y-3">
-            {/* PnL Specific Financial Turnaround Highlight Card */}
-            {isPnlChart && (
-              <div className="bg-surface/90 border border-crimson-600/30 rounded-xl p-3.5 space-y-2.5 shadow-sm text-xs shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span className="font-semibold text-text-primary">
-                      NIFTY Realized Cumulative P&L Turnaround (Sep 11)
-                    </span>
-                  </div>
-                  <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-900/60 px-2 py-0.5 rounded-full font-bold">
-                    Net P&L: +₹11,966.50
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5 font-mono text-[11px]">
-                  <div className="bg-background/80 p-2 rounded-lg border border-border/70">
-                    <div className="text-[10px] text-text-muted">Initial Spike</div>
-                    <div className="text-emerald-400 font-semibold">+₹1,027.00</div>
-                    <div className="text-[9px] text-text-dim">09:18 AM Fill</div>
-                  </div>
-                  <div className="bg-background/80 p-2 rounded-lg border border-border/70">
-                    <div className="text-[10px] text-text-muted">Max Drawdown</div>
-                    <div className="text-rose-400 font-semibold">-₹4,322.50</div>
-                    <div className="text-[9px] text-text-dim">13:29 PM Abyss</div>
-                  </div>
-                  <div className="bg-background/80 p-2 rounded-lg border border-border/70">
-                    <div className="text-[10px] text-text-muted">Turnaround Execution</div>
-                    <div className="text-amber-400 font-semibold">455 @ 33.55</div>
-                    <div className="text-[9px] text-text-dim">13:30 PM (23550 CE)</div>
-                  </div>
-                  <div className="bg-background/80 p-2 rounded-lg border border-border/70">
-                    <div className="text-[10px] text-text-muted">Total Recovery</div>
-                    <div className="text-emerald-400 font-semibold">+₹16,289.00</div>
-                    <div className="text-[9px] text-text-dim">+376.8% Swing</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Interactive Image Viewport Canvas */}
             <div className="flex-1 overflow-auto rounded-xl border border-border/80 bg-[radial-gradient(#262626_1px,transparent_1px)] [background-size:16px_16px] bg-black/40 flex items-center justify-center p-4 relative min-h-[300px]">
               {!imgLoadError && resolvedSrc ? (
@@ -684,65 +686,18 @@ export const ArtifactCanvas: React.FC = () => {
                   />
                 </div>
               ) : (
-                /* High-fidelity Vector Fallback Chart if image binary is offline or loading */
-                <div className="w-full max-w-2xl bg-surface/80 border border-border rounded-xl p-6 space-y-4 text-center">
-                  <div className="flex items-center justify-between border-b border-border/50 pb-2">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-emerald-400" />
-                      <span className="font-semibold text-xs text-text-primary">
-                        {imageData?.filename || 'pnl_sep11_turnaround.png'}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-mono text-crimson-400 bg-crimson-950/40 px-2 py-0.5 rounded border border-crimson-900/40">
-                      High-Resolution Visual Deliverable
-                    </span>
+                <div className="flex flex-col items-center justify-center p-8 text-center space-y-3">
+                  <ImageIcon className="w-12 h-12 text-text-dim opacity-40" />
+                  <div>
+                    <h4 className="text-sm font-semibold text-text-primary">
+                      {imageData?.filename ? 'Image Not Available' : 'No Visual Charts in Session'}
+                    </h4>
+                    <p className="text-xs text-text-muted mt-1 max-w-md">
+                      {imageData?.filename
+                        ? `${imageData.filename} could not be loaded. Use the download button to retrieve the file.`
+                        : 'When Python analysis scripts produce plots or charts (e.g., via Matplotlib plt.savefig), they will render here automatically.'}
+                    </p>
                   </div>
-
-                  {/* Synthetic SVG Curve for pnl_sep11_turnaround.png */}
-                  <div className="h-52 w-full bg-background/90 rounded-lg p-3 relative border border-border/60 flex flex-col justify-between">
-                    <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
-                      <span>09:15 AM (Open)</span>
-                      <span className="text-rose-400 font-semibold">13:29 PM (-₹4,322.50)</span>
-                      <span className="text-emerald-400 font-semibold">15:30 PM (+₹11,966.50)</span>
-                    </div>
-
-                    <svg className="w-full h-36" viewBox="0 0 600 160">
-                      {/* Zero line */}
-                      <line x1="0" y1="90" x2="600" y2="90" stroke="#374151" strokeDasharray="3 3" strokeWidth="1" />
-                      <text x="5" y="86" fill="#9ca3af" fontSize="9" fontFamily="monospace">₹0.00 Neutral</text>
-
-                      {/* Equity Curve: Start 90 -> Rise to 75 (+1027) -> Fall to 140 (-4322) -> Reversal spike to 20 (+11966.50) */}
-                      <path
-                        d="M 20 90 L 70 76 L 140 85 L 210 115 L 280 142 L 305 145 L 340 60 L 420 35 L 500 25 L 580 20"
-                        fill="none"
-                        stroke="#10b981"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      {/* Negative gradient area */}
-                      <circle cx="305" cy="145" r="4" fill="#ef4444" />
-                      <text x="240" y="157" fill="#ef4444" fontSize="9" fontFamily="monospace">Drawdown Abyss</text>
-
-                      {/* Turnaround execution point */}
-                      <circle cx="340" cy="60" r="4" fill="#f59e0b" />
-                      <text x="350" y="65" fill="#f59e0b" fontSize="9" fontFamily="monospace">13:30 CE Entry</text>
-
-                      {/* Positive peak finish */}
-                      <circle cx="580" cy="20" r="5" fill="#10b981" />
-                      <text x="495" y="15" fill="#10b981" fontSize="10" fontWeight="bold" fontFamily="monospace">+₹11,966.50</text>
-                    </svg>
-
-                    <div className="flex items-center justify-between text-[10px] font-mono text-text-dim border-t border-border/30 pt-1">
-                      <span>Air-gapped Python Matplotlib / Seaborn Render</span>
-                      <span>Verified Sandbox Workspace File</span>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-text-secondary leading-relaxed">
-                    {imageData?.caption ||
-                      'The high-resolution visualization is saved in the sandboxed workspace. Click "Download" to retrieve the raw .png file.'}
-                  </p>
                 </div>
               )}
             </div>

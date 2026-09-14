@@ -33,6 +33,8 @@ export interface DocArtifact {
   background?: string;
   findings?: string[];
   recommendations?: string[];
+  signoff_name?: string;
+  findings_table?: any;
   url?: string;
 }
 

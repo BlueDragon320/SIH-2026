@@ -829,5 +829,6 @@ def build_workflow_pdf(output_filename: str):
 
 
 if __name__ == "__main__":
-    out_pdf = sys.argv[1] if len(sys.argv) > 1 else "/home/blue/SIH/workflow.pdf"
+    default_out = os.path.abspath(os.path.join(os.path.dirname(__file__), "workflow.pdf"))
+    out_pdf = sys.argv[1] if len(sys.argv) > 1 else default_out
     build_workflow_pdf(out_pdf)

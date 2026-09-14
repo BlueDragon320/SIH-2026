@@ -106,7 +106,7 @@ def create_audit_spreadsheet(
             formula_cell.border = thin_border
             current_row += 1
 
-    # Auto-adjust column widths
+    # Auto-adjust column widths for calculation sheet
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
@@ -115,6 +115,64 @@ def create_audit_spreadsheet(
             max_len = max(max_len, len(val_str))
         ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
+    # Multi-sheet audit layout: Dedicated Summary Sheet (Spec §5.7)
+    # Calculation steps kept as live formulas on data sheet and an executive summary on another
+    if summary_formulas:
+        ws_summary = wb.create_sheet(title="Summary")
+
+        # Summary Title Banner
+        summary_title = f"Executive Summary — {title or sheet_title}"
+        ws_summary.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
+        st_cell = ws_summary.cell(row=1, column=1, value=summary_title)
+        st_cell.font = title_font
+        st_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws_summary.row_dimensions[1].height = 25
+
+        # Summary Headers
+        sum_headers = ["Key Metric / KPI", "Formula Reference", "Audit Status"]
+        for col_num, sh in enumerate(sum_headers, 1):
+            scell = ws_summary.cell(row=3, column=col_num, value=sh)
+            scell.font = header_font
+            scell.fill = header_fill
+            scell.alignment = Alignment(horizontal="center", vertical="center")
+            scell.border = thin_border
+        ws_summary.row_dimensions[3].height = 22
+
+        # Summary Metric Rows
+        calc_col_letter = get_column_letter(len(headers))
+        calc_row_start = header_row_num + len(rows) + 2
+        for s_idx, (label, formula) in enumerate(summary_formulas.items()):
+            row_pos = 4 + s_idx
+            calc_row = calc_row_start + s_idx
+            # Column 1: Label
+            c1 = ws_summary.cell(row=row_pos, column=1, value=label)
+            c1.font = bold_font
+            c1.border = thin_border
+            c1.fill = summary_fill
+
+            # Column 2: Reference to calculation sheet cell
+            ref_formula = f"='{sheet_title}'!{calc_col_letter}{calc_row}"
+            c2 = ws_summary.cell(row=row_pos, column=2, value=ref_formula)
+            c2.font = Font(name="Calibri", size=11, bold=True, italic=True)
+            c2.alignment = Alignment(horizontal="right")
+            c2.border = thin_border
+
+            # Column 3: Audit Status
+            c3 = ws_summary.cell(row=row_pos, column=3, value="LIVE_AUDITED")
+            c3.font = Font(name="Calibri", size=10, bold=True, color="1F497D")
+            c3.alignment = Alignment(horizontal="center")
+            c3.border = thin_border
+            ws_summary.row_dimensions[row_pos].height = 20
+
+        # Auto-adjust column widths for Summary sheet
+        for col in ws_summary.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                val_str = str(cell.value or "")
+                max_len = max(max_len, len(val_str))
+            ws_summary.column_dimensions[col_letter].width = max(max_len + 5, 16)
+
     wb.save(target_path)
     return {
         "status": "success",
@@ -122,6 +180,12 @@ def create_audit_spreadsheet(
         "absolute_path": target_path,
         "rows_count": len(rows),
         "columns_count": len(headers),
+        "sheets_count": len(wb.sheetnames),
+        "sheets": wb.sheetnames,
+        "headers": headers,
+        "rows": rows,
+        "sheet_title": sheet_title,
+        "title": title,
         "message": f"Successfully created audited Excel workbook at {os.path.basename(target_path)}"
     }
 

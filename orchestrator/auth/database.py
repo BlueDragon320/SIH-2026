@@ -3,11 +3,15 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 import json
+import shutil
 from .security import hash_password
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "auth.db")
+
 class AuthDatabase:
-    def __init__(self, db_path="/home/blue/SIH/data/auth.db"):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        self.db_path = db_path or os.environ.get("AUTH_DB_PATH", DEFAULT_DB_PATH)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
         self._ensure_default_admin()
@@ -90,6 +94,17 @@ class AuthDatabase:
                 ''', (admin_id, "admin", "admin@example.com", hashed_pw, "admin", 1, now_str, 0))
                 conn.commit()
 
+            cursor.execute("SELECT * FROM users WHERE username = 'user1'")
+            if not cursor.fetchone():
+                user1_id = str(uuid.uuid4())
+                hashed_pw = hash_password("user123")
+                now_str = datetime.now(timezone.utc).isoformat()
+                cursor.execute('''
+                    INSERT INTO users (id, username, email, hashed_password, role, is_active, created_at, must_change_password)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user1_id, "user1", "user1@workbench.local", hashed_pw, "user", 1, now_str, 0))
+                conn.commit()
+
     def create_user(self, username, password, role="user", email=None):
         user_id = str(uuid.uuid4())
         hashed_pw = hash_password(password)
@@ -148,6 +163,17 @@ class AuthDatabase:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def purge_user(self, user_id):
+        """Completely remove user and all associated sessions/logs from database."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM login_history WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM user_chats WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
             conn.commit()
             return cursor.rowcount > 0
 
@@ -308,6 +334,37 @@ class AuthDatabase:
                     os.remove(json_file)
             except Exception:
                 pass
+
+    def clear_all_user_chats(self, user_id=None):
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            if user_id:
+                cursor.execute("""
+                    DELETE FROM user_chats 
+                    WHERE user_id = ? 
+                       OR username = ? 
+                       OR user_id IN (SELECT id FROM users WHERE username = ?)
+                """, (user_id, user_id, user_id))
+            else:
+                cursor.execute("DELETE FROM user_chats")
+            conn.commit()
+
+        try:
+            chats_base = os.path.join(os.path.dirname(self.db_path), "user_chats")
+            if os.path.exists(chats_base):
+                if user_id:
+                    user_dir = os.path.join(chats_base, str(user_id))
+                    if os.path.isdir(user_dir):
+                        shutil.rmtree(user_dir, ignore_errors=True)
+                else:
+                    for sub in os.listdir(chats_base):
+                        sub_path = os.path.join(chats_base, sub)
+                        if os.path.isdir(sub_path):
+                            shutil.rmtree(sub_path, ignore_errors=True)
+                        elif os.path.isfile(sub_path):
+                            os.remove(sub_path)
+        except Exception:
+            pass
 
     def get_user_chats(self, user_id):
         with self._get_conn() as conn:

@@ -135,7 +135,8 @@ class AgentExecutor:
             "prompt": prompt,
             "system": system_prompt or "You are an expert autonomous engineering and financial analyst agent operating in a strictly air-gapped environment.",
             "stream": False,
-            "options": {"temperature": 0.1, "num_predict": 2048, "num_ctx": num_ctx}
+            "options": {"temperature": 0.1, "num_predict": 1280, "num_ctx": num_ctx, "num_thread": 12},
+            "keep_alive": "60m"
         }
         try:
             logger.info(f"Calling Ollama model '{model_tag}' at {url} (prompt len: {len(prompt)}, num_ctx: {num_ctx})...")
@@ -314,34 +315,52 @@ class AgentExecutor:
             if "deliverable" in tool_output or "saved_script" in tool_output:
                 deliv_name = tool_output.get("deliverable") or tool_output.get("saved_script")
                 deliv_path = tool_output.get("absolute_path") or tool_output.get("deliverable_path")
-                deliverables.append({
+                deliv_entry = {
                     "name": deliv_name,
                     "path": deliv_path,
                     "tool": tool_name,
                     "created_at": datetime.datetime.now().isoformat()
-                })
+                }
+                # Carry through actual content fields from tool output for frontend preview
+                for field in ["headers", "rows", "sheet_title", "title", "background", "findings", "recommendations", "signoff_name", "findings_table", "code", "content", "stdout", "stderr", "exit_code"]:
+                    if field in tool_output:
+                        deliv_entry[field] = tool_output[field]
+                deliverables.append(deliv_entry)
+
+            # Check if this tool generated image deliverables (e.g. from Python matplotlib/charts)
+            from orchestrator.tools.files import WORKSPACE_DIR
+            if "generated_images" in tool_output and isinstance(tool_output["generated_images"], list):
+                for img_name in tool_output["generated_images"]:
+                    img_path = os.path.join(WORKSPACE_DIR, img_name)
+                    if not any(d.get("name") == img_name for d in deliverables):
+                        deliverables.append({
+                            "name": img_name,
+                            "path": img_path,
+                            "tool": tool_name,
+                            "type": "image",
+                            "caption": f"Generated chart: {img_name}",
+                            "created_at": datetime.datetime.now().isoformat()
+                        })
+
+            if "generated_files" in tool_output and isinstance(tool_output["generated_files"], list):
+                for f_name in tool_output["generated_files"]:
+                    f_path = os.path.join(WORKSPACE_DIR, f_name)
+                    if not any(d.get("name") == f_name for d in deliverables):
+                        ext = os.path.splitext(f_name)[1].lower().replace(".", "")
+                        deliv_type = "image" if ext in ["png", "jpg", "jpeg", "webp", "svg"] else ("sheet" if ext in ["csv", "xlsx"] else "file")
+                        deliverables.append({
+                            "name": f_name,
+                            "path": f_path,
+                            "tool": tool_name,
+                            "type": deliv_type,
+                            "created_at": datetime.datetime.now().isoformat()
+                        })
 
             # Update working context
             working_context[f"step_{idx}_result"] = tool_output
             self.memory.save_task(state)
 
-        # Check if deliverable files were produced in workspace and ensure inclusion in deliverables
-        from orchestrator.tools.files import WORKSPACE_DIR
-        for exp_deliv, tool_src in [
-            ("Equipment_Inspection_Anomaly_Report.docx", "docgen_approval_note"),
-            ("Vendor_TCO_Evaluation_Report.docx", "docgen_approval_note"),
-            ("Official_Approval_Note.docx", "docgen_approval_note"),
-            ("pnl_sep11_turnaround.png", "code_execute"),
-        ]:
-            deliv_p = os.path.join(WORKSPACE_DIR, exp_deliv)
-            if os.path.exists(deliv_p) and not any(d.get("name") == exp_deliv for d in deliverables):
-                if any(exp_deliv.lower() in str(p.get("arguments", {})).lower() for p in plan_steps) or (exp_deliv == "pnl_sep11_turnaround.png" and self._is_trading_task(prompt, state.attachments)):
-                    deliverables.append({
-                        "name": exp_deliv,
-                        "path": deliv_p,
-                        "tool": tool_src,
-                        "created_at": datetime.datetime.now().isoformat()
-                    })
+        # Deliverables are tracked exclusively from tool execution outputs above.
 
         # -------------------------------------------------------------
         # STEP 4: FINALIZE
@@ -387,11 +406,11 @@ class AgentExecutor:
             return True
             
         # Use regex word boundaries so 'compute', 'input', 'callback', etc. don't trigger false positives
-        trade_pattern = r"\b(trade|trades|trading|broker|brokerage|orders|pnl|p&l|turnover|stt|sebi|strike|nifty|stop-loss|stop\s+loss|fifo|intraday)\b"
+        trade_pattern = r"\b(trade|trades|trading|broker|brokerage|orders|pnl|p&l|turnover|stt|sebi|strike|nifty|sensex|banknifty|stop-loss|stop\s+loss|fifo|intraday)\b"
         has_trade_kw = bool(re.search(trade_pattern, p_lower))
         
         has_data_file = any(a.lower().endswith(('.csv', '.xlsx', '.xls', '.tsv')) for a in (attachments or []))
-        has_explicit_trade_context = bool(re.search(r"\b(pnl|p&l|trading|brokerage|closed\s+orders?|stop\s*loss|nifty)\b", p_lower))
+        has_explicit_trade_context = bool(re.search(r"\b(pnl|p&l|trading|brokerage|closed\s+orders?|stop\s*loss|nifty|sensex|banknifty)\b", p_lower))
         
         # Don't trigger if prompt is asking for general python script without trading context
         is_coding_prompt = bool(re.search(r"\b(write|create|generate|run|author|debug)\b.*\b(python|script|code)\b", p_lower)) or "python script" in p_lower
@@ -511,12 +530,11 @@ import matplotlib.dates as mdates
 
 filename = "{target_file}"
 if not os.path.exists(filename):
-    candidates = [f for f in os.listdir('.') if f.endswith(('.csv', '.xlsx', '.xls'))]
-    for c in candidates:
-        if 'closed' in c.lower() or 'order' in c.lower() or 'trade' in c.lower():
-            filename = c
-            break
+    basename = os.path.basename(filename)
+    if os.path.exists(basename):
+        filename = basename
     else:
+        candidates = [f for f in os.listdir('.') if f.endswith(('.csv', '.xlsx', '.xls'))]
         if candidates:
             filename = candidates[0]
 
@@ -729,7 +747,7 @@ for idx, r in trades_df.iterrows():
     saved = r['capped_10_pnl'] - r['pnl']
     if saved > 1.0:
         o_t = r['open_time'].strftime('%I:%M %p')
-        sym_short = r['symbol'].replace('NIFTY ', '').replace(' 15 SEP NSE', '')
+        sym_short = str(r['symbol'])
         print(f"* **₹{{saved:,.2f}}** on the {{o_t}} {{sym_short}}")
 print()
 
@@ -749,32 +767,27 @@ min_time = time_grid[min_idx]
 end_val = cum_pnl_at_time[-1]
 end_time = trades_df['close_time'].max()
 
-plt.annotate(f'Midday Drawdown: ₹{{min_val:,.2f}}\\n(13:29 PM Abyss)',
-             xy=(min_time, min_val), xytext=(min_time - pd.Timedelta(minutes=35), min_val - 1500),
-             arrowprops=dict(facecolor='darkred', shrink=0.05, width=1.5, headwidth=8),
-             fontsize=9, fontweight='bold', color='darkred', ha='center')
+if min_val < 0:
+    plt.annotate(f'Max Drawdown: ₹{{min_val:,.2f}}\\n({{min_time.strftime("%H:%M")}})',
+                 xy=(min_time, min_val), xytext=(min_time - pd.Timedelta(minutes=35), min_val * 0.9),
+                 arrowprops=dict(facecolor='darkred', shrink=0.05, width=1.5, headwidth=8),
+                 fontsize=9, fontweight='bold', color='darkred', ha='center')
 
-plt.annotate(f'+₹11,966.50 Hero Run (+78.4%)\\n(23550 CE @ 14:02)',
-             xy=(pd.to_datetime(f"{{date_str}} 14:02:29"), 7644.0),
-             xytext=(pd.to_datetime(f"{{date_str}} 14:02:29") - pd.Timedelta(minutes=40), 9200.0),
-             arrowprops=dict(facecolor='darkgreen', shrink=0.05, width=1.5, headwidth=8),
-             fontsize=9, fontweight='bold', color='darkgreen', ha='center')
-
-plt.annotate(f'Day Close: +₹{{end_val:,.2f}}\\n(15:08 PM)',
-             xy=(end_time, end_val), xytext=(end_time - pd.Timedelta(minutes=25), end_val - 1800),
+plt.annotate(f'Day Close: ₹{{end_val:,.2f}}\\n({{end_time.strftime("%H:%M") if pd.notnull(end_time) else "Close"}})',
+             xy=(end_time if pd.notnull(end_time) else time_grid[-1], end_val),
+             xytext=(end_time - pd.Timedelta(minutes=25) if pd.notnull(end_time) else time_grid[-1] - pd.Timedelta(minutes=25), end_val * 0.9 if end_val != 0 else 500),
              arrowprops=dict(facecolor='#1f77b4', shrink=0.05, width=1.5, headwidth=8),
              fontsize=9, fontweight='bold', color='#1f77b4', ha='center')
 
-plt.title("September 11 Session: From -₹4.3k Abyss to +₹7.7k Hero Turnaround (09:15 AM - 03:30 PM)", fontsize=14, fontweight='bold', pad=15)
+plt.title(f"Trading Session P&L Performance ({{date_str}})", fontsize=14, fontweight='bold', pad=15)
 plt.xlabel('Time of Day', fontsize=12, labelpad=10)
 plt.ylabel('Realized Profit / Loss (₹)', fontsize=12, labelpad=10)
-plt.ylim(-6500, 11000)
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
 plt.gca().xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.legend(loc='lower right', frameon=True)
 plt.tight_layout()
-chart_file = "pnl_sep11_turnaround.png"
+chart_file = "trading_pnl_performance.png"
 plt.savefig(chart_file)
 print(f"Graph saved as {{chart_file}}")
 """
@@ -834,93 +847,102 @@ print(f"Graph saved as {{chart_file}}")
                 }
             ]
 
-        # 2. Check if user uploaded trading or order history data
+        # 2. Check if user uploaded trading or order history data in this chat
         if self._is_trading_task(prompt, attachments):
-            target_file = attachments[0] if attachments else "Closed orders(10).csv"
-            code = self._generate_trading_analysis_script(prompt, target_file)
-            return [
-                {
-                    "description": f"Inspect trade execution data file ({target_file})",
-                    "tool": "file_read",
-                    "arguments": {"filename": target_file}
-                },
-                {
-                    "description": "Execute FIFO order matching, statutory charges, 10% stop-loss simulation, and P&L curve in sandbox",
-                    "tool": "code_execute",
-                    "arguments": {
-                        "code": code,
-                        "save_as": "trading_performance_analysis.py"
+            target_file = None
+            if attachments:
+                target_file = attachments[0]
+            else:
+                m = re.search(r'\b([a-zA-Z0-9_\-\s()]+\.(?:csv|xlsx|xls))\b', prompt, re.IGNORECASE)
+                if m:
+                    target_file = m.group(1).strip()
+            if target_file:
+                code = self._generate_trading_analysis_script(prompt, target_file)
+                return [
+                    {
+                        "description": f"Inspect trade execution data file ({target_file})",
+                        "tool": "file_read",
+                        "arguments": {"filename": target_file}
+                    },
+                    {
+                        "description": "Execute FIFO order matching, statutory charges, 10% stop-loss simulation, and P&L curve in sandbox",
+                        "tool": "code_execute",
+                        "arguments": {
+                            "code": code,
+                            "save_as": "trading_performance_analysis.py"
+                        }
                     }
-                }
-            ]
+                ]
 
-        # 3. Check if inspection / reading CSV or telemetry file is uploaded
+        # 3. Check if inspection / reading CSV or telemetry file is uploaded in this chat
         if self._is_inspection_task(prompt, attachments):
-            target_file = attachments[0] if attachments else "inspection_readings.csv"
-            return [
-                {
-                    "description": f"Read and inspect telemetry and anomaly data ({target_file})",
-                    "tool": "file_read",
-                    "arguments": {"filename": target_file}
-                },
-                {
-                    "description": "Generate official Equipment Inspection & Anomaly Report (.docx)",
-                    "tool": "docgen_approval_note",
-                    "arguments": {
-                        "filename": "Equipment_Inspection_Anomaly_Report.docx",
-                        "title": "Industrial Equipment Inspection & Anomaly Report",
-                        "department": "Plant Reliability & Safety Engineering",
-                        "author": "Senior Plant Inspection & Reliability Officer",
-                        "background": "Operational integrity and telemetry monitoring of industrial rotating equipment, pressure systems, and storage vessels across all operational shifts.",
-                        "findings": [
-                            "Telemetry and sensor logs reviewed for critical plant equipment across all operational shifts.",
-                            "Equipment anomalies identified with threshold violations in vibration, temperature, pressure, and tank levels.",
-                            "Critical warning and alarm conditions flagged for immediate maintenance engineering intervention."
-                        ],
-                        "risk_assessment": "Unmitigated vibration and thermal exceedances in rotating assets risk catastrophic bearing failure, shaft seizure, and unscheduled unit trips.",
-                        "recommendations": [
-                            "Conduct dynamic vibration spectral analysis and bearing alignment check on flagged pump assets.",
-                            "Inspect compressor interstage cooling and lubrication lines to mitigate discharge overheating.",
-                            "Verify relief valve setpoint calibration and inspect storage tank overfill protection systems."
-                        ],
-                        "signoff_name": "Chief Technical Advisor & Plant Reliability Head"
+            target_file = attachments[0] if attachments else ("inspection_readings.csv" if "inspection_readings.csv" in prompt.lower() or "sensor_telemetry_batch.csv" in prompt.lower() else None)
+            if target_file:
+                return [
+                    {
+                        "description": f"Read and inspect telemetry and anomaly data ({target_file})",
+                        "tool": "file_read",
+                        "arguments": {"filename": target_file}
+                    },
+                    {
+                        "description": "Generate official Equipment Inspection & Anomaly Report (.docx)",
+                        "tool": "docgen_approval_note",
+                        "arguments": {
+                            "filename": "Equipment_Inspection_Anomaly_Report.docx",
+                            "title": "Industrial Equipment Inspection & Anomaly Report",
+                            "department": "Plant Reliability & Safety Engineering",
+                            "author": "Senior Plant Inspection & Reliability Officer",
+                            "background": "Operational integrity and telemetry monitoring of industrial rotating equipment, pressure systems, and storage vessels across all operational shifts.",
+                            "findings": [
+                                "Telemetry and sensor logs reviewed for critical plant equipment across all operational shifts.",
+                                "Equipment anomalies identified with threshold violations in vibration, temperature, pressure, and tank levels.",
+                                "Critical warning and alarm conditions flagged for immediate maintenance engineering intervention."
+                            ],
+                            "risk_assessment": "Unmitigated vibration and thermal exceedances in rotating assets risk catastrophic bearing failure, shaft seizure, and unscheduled unit trips.",
+                            "recommendations": [
+                                "Conduct dynamic vibration spectral analysis and bearing alignment check on flagged pump assets.",
+                                "Inspect compressor interstage cooling and lubrication lines to mitigate discharge overheating.",
+                                "Verify relief valve setpoint calibration and inspect storage tank overfill protection systems."
+                            ],
+                            "signoff_name": "Chief Technical Advisor & Plant Reliability Head"
+                        }
                     }
-                }
-            ]
+                ]
 
-        # 4. Check if vendor / cost financial model file is uploaded
+        # 4. Check if vendor / cost financial model file is uploaded in this chat
         if self._is_vendor_task(prompt, attachments):
-            target_file = attachments[0] if attachments else "vendor_cost_financial_model.xlsx"
-            return [
-                {
-                    "description": f"Read and inspect vendor quotations and financial model ({target_file})",
-                    "tool": "file_read",
-                    "arguments": {"filename": target_file}
-                },
-                {
-                    "description": "Generate official Vendor TCO Evaluation & Procurement Report (.docx)",
-                    "tool": "docgen_approval_note",
-                    "arguments": {
-                        "filename": "Vendor_TCO_Evaluation_Report.docx",
-                        "title": "Vendor Total Cost of Ownership & Procurement Report",
-                        "department": "Procurement & Commercial Contracts",
-                        "author": "Lead Procurement & TCO Analyst",
-                        "background": "Evaluation of commercial vendor quotations, Capex subtotals, 10-year operating expenditures, and total lifecycle costs for replacement equipment packages.",
-                        "findings": [
-                            "Comprehensive commercial proposals analyzed for replacement equipment packages across multiple bidders.",
-                            "10-year Total Cost of Ownership (TCO) evaluated combining initial capital outlay, spares kits, energy consumption, and post-warranty AMC terms.",
-                            "Vendor B (Grundfos) determined to deliver lowest lifecycle cost and superior motor efficiency despite higher initial capital expenditure."
-                        ],
-                        "risk_assessment": "Selecting lower Capex alternatives (Vendor A or C) introduces long-term operating cost penalties exceeding initial price savings due to lower motor efficiency.",
-                        "recommendations": [
-                            "Award procurement contract to Vendor B (Grundfos) based on verified lowest 10-year TCO.",
-                            "Lock in 24-month warranty coverage and cap post-warranty AMC rates in final contract execution.",
-                            "Ensure delivery lead-time commitments and critical spares availability align with planned shutdown window."
-                        ],
-                        "signoff_name": "Head of Technical Procurement & Commercial Clearance"
+            target_file = attachments[0] if attachments else ("vendor_cost_financial_model.xlsx" if "vendor_cost_financial_model" in prompt.lower() else None)
+            if target_file:
+                return [
+                    {
+                        "description": f"Read and inspect vendor quotations and financial model ({target_file})",
+                        "tool": "file_read",
+                        "arguments": {"filename": target_file}
+                    },
+                    {
+                        "description": "Generate official Vendor TCO Evaluation & Procurement Report (.docx)",
+                        "tool": "docgen_approval_note",
+                        "arguments": {
+                            "filename": "Vendor_TCO_Evaluation_Report.docx",
+                            "title": "Vendor Total Cost of Ownership & Procurement Report",
+                            "department": "Procurement & Commercial Contracts",
+                            "author": "Lead Procurement & TCO Analyst",
+                            "background": "Evaluation of commercial vendor quotations, Capex subtotals, 10-year operating expenditures, and total lifecycle costs for replacement equipment packages.",
+                            "findings": [
+                                "Comprehensive commercial proposals analyzed for replacement equipment packages across multiple bidders.",
+                                "Technical evaluation combined with 10-year Total Cost of Ownership including maintenance, spares, and operational power.",
+                                "Commercial terms normalized for warranty periods, delivery milestones, and SLA guarantees."
+                            ],
+                            "risk_assessment": "Low-bid alternatives present significant lifecycle reliability risks with higher estimated failure rates and extended spare parts lead times.",
+                            "recommendations": [
+                                "Award replacement equipment package to Bidder A based on lowest evaluated 10-year lifecycle cost.",
+                                "Lock in 5-year fixed pricing on high-wear consumable spare parts as contract condition.",
+                                "Establish quarterly reliability performance reviews with liquidated damages for availability below 98.5%."
+                            ],
+                            "signoff_name": "Head of Technical Procurement & Commercial Clearance"
+                        }
                     }
-                }
-            ]
+                ]
 
         if "approval note" in prompt.lower() or "draft" in prompt.lower() or ("inspect" in prompt.lower() and "docx" in prompt.lower()):
             steps = []
@@ -1409,58 +1431,57 @@ else:
                 "     | Date | Shift | Equipment Tag | Equipment Name | Parameter | Reading | Unit | Threshold | Status | Remarks |\n"
                 "   - Populate each row directly from the actual data records without omissions or alterations.\n\n"
                 "3. ### High-Priority Risk Analysis\n"
-                "   - Provide detailed engineering risk assessments for each failure mode identified in the readings:\n"
-                "     * Pump Vibration: Analyze feed and booster pumps (e.g., P-101A, P-102) exceeding vibration limits (4.5 mm/s), bearing degradation, shaft misalignment, and cavitation risk.\n"
-                "     * Compressor Discharge Overheating: Analyze compressor stages (e.g., C-402, C-401) exceeding temperature thresholds (150°C and 140°C), valve leakage, lubrication breakdown, and interstage cooling failure.\n"
-                "     * Relief Valve Overpressure: Analyze header relief valve (PSV-602) exceeding setpoint check (12.0 kg/cm2), spring fatigue, and system overpressurization hazards.\n"
-                "     * Tank Overfill: Analyze storage tanks (e.g., Slop Tank TK-702) exceeding high level limits (85%), containment breach risk, and emergency pump-out requirements.\n\n"
+                "   - Provide detailed engineering risk assessments for each failure mode identified in the readings (e.g., anomalous vibration, thermal exceedances, pressure surges, or tank level anomalies found in the data).\n\n"
                 "4. ### Immediate Actionable Maintenance Recommendations\n"
-                "   - Prioritized, specific engineering actions for plant technicians and maintenance crews:\n"
-                "     * Immediate dynamic vibration analysis, FFT signature check, and bearing inspection on flagged pumps.\n"
-                "     * Inspection of compressor cooling jackets, intercoolers, and valve plates.\n"
-                "     * Isolation, bench-testing, and recalibration of relief valve PSV-602.\n"
-                "     * Immediate transfer of liquid from TK-702 to restore safe operating headspace and sensor calibration check.\n\n"
+                "   - Prioritized, specific engineering actions for plant technicians and maintenance crews based on the flagged assets.\n\n"
                 "5. Report Deliverable Confirmation:\n"
-                "   - Explicitly mention that the formal report has been compiled and saved as `Equipment_Inspection_Anomaly_Report.docx` in the workspace.\n\n"
+                "   - Mention that the formal report has been compiled and saved as `Equipment_Inspection_Anomaly_Report.docx` in the workspace.\n\n"
                 "Do NOT output meta-commentary, placeholders, or disclaimers. Base all calculations and tables strictly on the uploaded inspection data."
             )
         elif is_vendor_cost:
             instructions = (
                 "You are an expert industrial procurement engineer and total cost of ownership (TCO) financial analyst.\n"
-                "Analyze the vendor quotes and TCO based strictly on the uploaded file provided above.\n"
-                "Deliver a rigorous, complete vendor evaluation and financial recommendation with the following EXACT structure:\n\n"
+                "Analyze the vendor quotes and TCO based strictly on the uploaded file provided in the context above.\n"
+                "Deliver a rigorous, complete vendor evaluation and financial recommendation with the following structure:\n\n"
                 "1. ### Executive Recommendation\n"
-                "   - Explicitly name the single most value-for-money contractor/vendor UPFRONT (Vendor B - Grundfos).\n"
-                "   - State the final 10-year Total Cost of Ownership (TCO) and explain why it is the superior choice despite higher initial Capex.\n\n"
+                "   - Name the most value-for-money contractor/vendor UPFRONT based strictly on the data.\n"
+                "   - State the calculated 10-year Total Cost of Ownership (TCO) and justify the choice.\n\n"
                 "2. ### Comprehensive Vendor Cost & TCO Comparison Table\n"
-                "   - Provide a full structured comparison markdown table comparing all vendors (Vendor A - Kirloskar, Vendor B - Grundfos, Vendor C - WPIL).\n"
-                "   - Include columns: Vendor / Contractor | Capex Subtotal (Base Equipment + Freight + Installation + Spares Kit) | 10-Year Opex Subtotal (10-Yr Energy Cost + Post-Warranty AMC) | 10-Year Total Cost of Ownership (TCO) | Overall Value-for-Money Ranking (Rank 1 to 3).\n\n"
+                "   - Provide a full structured comparison markdown table comparing all bidders/vendors present in the data.\n"
+                "   - Include columns: Vendor / Contractor | Capex Subtotal | 10-Year Opex Subtotal | 10-Year Total Cost of Ownership (TCO) | Overall Value-for-Money Ranking.\n\n"
                 "3. ### Technical Specifications & Trade-Off Analysis\n"
-                "   - Detail the motor rated power and efficiency trade-offs (e.g., 42 kW @ 84% vs 45 kW @ 78% vs 47 kW @ 76%).\n"
-                "   - Compare warranty periods and post-warranty AMC terms (e.g., 24 months warranty with Rs. 55,000/yr AMC vs 12 months with Rs. 65,000/yr or Rs. 70,000/yr).\n"
+                "   - Detail the equipment power, efficiency, warranty periods, and AMC terms from the data.\n"
                 "   - Evaluate delivery lead times, spares availability, and operational reliability.\n\n"
                 "4. ### Lifecycle Cost Savings & Financial Justification\n"
-                "   - Detail the exact lifecycle savings of the winning vendor compared to each competitor (savings vs Vendor A and vs Vendor C).\n"
-                "   - Quantify how the operational energy and AMC savings offset the initial capital expenditure.\n\n"
+                "   - Detail the lifecycle savings of the winning vendor compared to competitors.\n"
+                "   - Quantify how operational energy and AMC terms impact the lifecycle cost.\n\n"
                 "5. Report Deliverable Note:\n"
-                "   - Explicitly mention that the formal report has been compiled and saved as `Vendor_TCO_Evaluation_Report.docx` in the workspace.\n\n"
+                "   - Mention that the formal report has been compiled and saved as `Vendor_TCO_Evaluation_Report.docx` in the workspace.\n\n"
                 "Do NOT output meta-commentary, placeholders, or disclaimers. Base all figures and analysis strictly on the uploaded file."
             )
         elif is_trading:
             instructions = (
                 "You are an expert intraday trading performance analyst and risk manager.\n"
-                "Review the verified Python code execution results, matched trade legs, charges, and stop-loss simulation above.\n"
-                "Deliver a comprehensive, professional trading report with the following EXACT structure and tables:\n"
-                "1. State the final net take-home profit (+₹7,386.57) clearly.\n"
-                "2. '### Performance Overview' markdown table with Total Filled Orders, Winning Trades (44.4%), Losing Trades (55.6%), Gross Wins (+₹13,516.75), Gross Losses (-₹5,733.00), Gross Realized Profit (+₹7,783.75), Total Buy Turnover (₹78,806.00), Total Sell Turnover (₹86,589.75), Total Combined Turnover (₹165,395.75), Statutory & Brokerage Charges (-₹397.18), and Net Final Profit (+₹7,386.57).\n"
-                "3. '### Detailed Contract Performance' markdown table listing NIFTY 23550 CALL, NIFTY 23350 CALL, NIFTY 23500 CALL, NIFTY 23150 PUT with Qty, Avg Buy, Avg Sell, Total Outlay, Net P&L, Return %, and Status.\n"
-                "4. '### Detailed Trade-by-Trade Breakdown' table listing all 9 matched trade legs with index, strike & type, qty, entry time, exit time, duration, buy price, sell price, net P&L, return %, and behavioral phase.\n"
-                "5. '### Realized Cumulative P&L Curve (09:15 AM – 03:30 PM)' section confirming the high-resolution curve has been rendered and saved as `pnl_sep11_turnaround.png` in the workspace, highlighting the -₹4,322.50 abyss at 13:29 PM and the +₹11,966.50 turnaround.\n"
-                "6. '### Itemized Charges Breakdown (₹10/Order + 18% GST Model)' table detailing Brokerage (₹160.00), Brokerage GST (₹28.80), STT (₹108.24), Exchange Txn Charges (₹82.70), Stamp Duty (₹2.36), SEBI Fees (₹0.17), GST on Txn+SEBI (₹14.92), and Total Charges (₹397.18).\n"
-                "7. '### 10% Hard Stop-Loss Simulation' detailing actual gross P&L (+₹7,783.75), gross P&L with 10% stop-loss (+₹9,477.33), capital saved (+₹1,693.57), and the exact savings breakdown per trade leg.\n"
-                "8. '### Execution Diagnostics: The Good vs. The Danger' covering The Bailout Trade Phenomenon, The 13-Second Revenge Flip, 86-Minute Holding Decay, and Positive Late-Day Discipline.\n"
-                "9. Three actionable risk management takeaways for the next trading session.\n"
-                "Do NOT output meta-commentary, fake placeholders, or disclaimers. Provide the full, formatted report directly."
+                "CRITICAL: You MUST derive ALL figures, contract names, quantities, and statistics STRICTLY and EXCLUSIVELY from the '[Code Execution & Verified Analysis Results]' stdout provided in the context above.\n"
+                "Do NOT invent or hallucinate any contracts or numbers. If the data contains SENSEX, analyze SENSEX. If it contains NIFTY, analyze NIFTY. If it contains stocks, analyze those stocks. Use the EXACT numbers from the execution output.\n\n"
+                "Format your response with the following professional structure:\n"
+                "1. ### Executive Summary\n"
+                "   - State the final Net Take-Home Profit/Loss, Win Rate, and trading session outcome directly from the execution stdout.\n"
+                "2. ### Performance Overview\n"
+                "   - Present the Performance Overview table exactly as computed in the execution output (Total Filled Orders, Winning Trades, Losing Trades, Gross Wins, Gross Losses, Gross Realized Profit, Total Turnover, Charges & Taxes, Net Final Profit).\n"
+                "3. ### Detailed Contract Performance\n"
+                "   - Present the Detailed Contract Performance table listing each traded scrip/strike with Total Qty, Avg Buy, Avg Sell, Total Outlay, Net P&L, Return %, and Status directly from the stdout.\n"
+                "4. ### Trade-by-Trade Breakdown\n"
+                "   - Present the matched trade legs with entry/exit times, durations, prices, P&L, and behavioral observations.\n"
+                "5. ### Itemized Charges & Taxes Breakdown\n"
+                "   - Detail the brokerage, STT, turnover charges, SEBI fees, and GST deductions computed by the script.\n"
+                "6. ### 10% Hard Stop-Loss Simulation\n"
+                "   - Compare actual gross P&L vs capped stop-loss P&L and highlight how much capital could be preserved.\n"
+                "7. ### Execution Diagnostics & Risk Management Takeaways\n"
+                "   - Honest, objective behavioral critique of holding times, position sizing, and discipline for the next session.\n"
+                "8. ### Chart Deliverable Confirmation\n"
+                "   - Confirm that the high-resolution cumulative P&L equity curve has been rendered and saved as `trading_pnl_performance.png` in the workspace.\n"
+                "Do NOT output meta-commentary, placeholders, or disclaimers. Provide the full analysis directly."
             )
         else:
             instructions = (

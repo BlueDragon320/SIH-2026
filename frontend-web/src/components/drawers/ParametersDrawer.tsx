@@ -221,12 +221,12 @@ export const ParametersDrawer: React.FC = () => {
             <select
               value={params.keepAlive}
               onChange={e => updateParams({ keepAlive: e.target.value })}
-              className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-text-primary text-xs focus:outline-none focus:border-crimson-500 font-mono"
+              className="w-full bg-[#18181b] border border-border rounded-lg px-2.5 py-1.5 text-text-primary text-xs focus:outline-none focus:border-crimson-500 font-mono [color-scheme:dark]"
             >
-              <option value="5m">5 minutes (Frees VRAM quickly)</option>
-              <option value="15m">15 minutes (Standard)</option>
-              <option value="1h">1 hour</option>
-              <option value="-1">Indefinite (Pin in GPU VRAM)</option>
+              <option value="5m" className="bg-[#18181b] text-[#f4f4f5]">5 minutes (Frees VRAM quickly)</option>
+              <option value="15m" className="bg-[#18181b] text-[#f4f4f5]">15 minutes (Standard)</option>
+              <option value="1h" className="bg-[#18181b] text-[#f4f4f5]">1 hour</option>
+              <option value="-1" className="bg-[#18181b] text-[#f4f4f5]">Indefinite (Pin in GPU VRAM)</option>
             </select>
           </div>
         </div>

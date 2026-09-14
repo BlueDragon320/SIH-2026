@@ -22,8 +22,8 @@ export function ProtectedRoute({ requireAdmin = false, children }: { requireAdmi
         </div>
         <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
         <p className="text-text-secondary text-sm max-w-md mb-6 leading-relaxed">
-          The <strong>/admin</strong> dashboard is strictly restricted to the <strong>Master Head of the Department</strong>.
-          Regular user accounts cannot access administrative surveillance and system management.
+          The <strong>/admin</strong> dashboard is strictly restricted to <strong>Administrators</strong>.
+          Regular user accounts cannot access administrative monitoring and system management.
         </p>
         <Link
           to="/"

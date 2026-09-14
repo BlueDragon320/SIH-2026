@@ -8,18 +8,34 @@ import traceback
 class AuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, auth_db):
         super().__init__(app)
-        self.auth_db = auth_db
-        self.whitelist = ["/health", "/v1/auth/login", "/v1/auth/refresh", "/docs", "/openapi.json", "/redoc"]
+        self.whitelist = [
+            "/health",
+            "/v1/hardware-status",
+            "/v1/network-status",
+            "/v1/auth/login",
+            "/v1/auth/refresh",
+            "/docs",
+            "/openapi.json",
+            "/redoc"
+        ]
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in self.whitelist or request.method == "OPTIONS":
+        if (
+            request.url.path in self.whitelist
+            or request.url.path.startswith("/v1/workspace/download")
+            or request.method == "OPTIONS"
+        ):
             return await call_next(request)
             
         auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return JSONResponse(status_code=401, content={"detail": "Missing or invalid authorization token"})
+        token = None
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        elif request.query_params.get("token"):
+            token = request.query_params.get("token")
             
-        token = auth_header.split(" ")[1]
+        if not token:
+            return JSONResponse(status_code=401, content={"detail": "Missing or invalid authorization token"})
         try:
             payload = decode_token(token)
             if payload.get("type") != "access":
